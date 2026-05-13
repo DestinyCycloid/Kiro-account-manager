@@ -17,6 +17,7 @@ import type {
 } from './types'
 import { proxyLogger } from './logger'
 import { getKProxyService } from '../kproxy'
+import { getSystemProxy } from './systemProxy'
 
 // 是否使用 K-Proxy 代理发送 API 请求（从主进程导入）
 let useKProxyForApi = false
@@ -30,7 +31,7 @@ export function setLogStreamEvents(enabled: boolean): void {
   logStreamEvents = enabled
 }
 
-// 获取网络代理 agent（优先 K-Proxy，其次应用级代理设置）
+// 获取网络代理 agent（优先 K-Proxy，其次用户设置代理，其次系统代理）
 function getNetworkAgent(): ProxyAgent | undefined {
   if (useKProxyForApi) {
     const kproxyService = getKProxyService()
@@ -43,6 +44,10 @@ function getNetworkAgent(): ProxyAgent | undefined {
   const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy
   if (envProxy) {
     return new ProxyAgent({ uri: envProxy, requestTls: { rejectUnauthorized: false } })
+  }
+  const systemProxy = getSystemProxy()
+  if (systemProxy) {
+    return new ProxyAgent({ uri: systemProxy, requestTls: { rejectUnauthorized: false } })
   }
   return undefined
 }
@@ -75,7 +80,7 @@ const KIRO_ENDPOINTS = [
   },
   {
     url: 'https://q.us-east-1.amazonaws.com/SendMessageStreaming',
-    origin: 'AmazonQ',
+    origin: 'AI_EDITOR',
     amzTarget: 'AmazonQDeveloperStreamingService.SendMessage',
     name: 'AmazonQCLI'
   }

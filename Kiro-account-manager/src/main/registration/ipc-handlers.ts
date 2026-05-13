@@ -7,21 +7,21 @@ const registrarPool = new Map<string, Registrar>()
 const MANUAL_KEY = '__manual__'
 
 export function registerIPCHandlers(getMainWindow: () => BrowserWindow | null): void {
-  const sendLog = (msg: string): void => {
+  const sendLog = (msg: string, taskId?: string): void => {
     const win = getMainWindow()
     if (win && !win.isDestroyed()) {
-      win.webContents.send('registration-log', msg)
+      win.webContents.send('registration-log', { message: msg, taskId })
     }
   }
 
   // 启动自动注册（支持并发：每个 taskId 独立运行）
   ipcMain.handle('registration-start-auto', async (_event, config: Partial<RegistrationConfig> & { taskId?: string }) => {
     const taskId = config.taskId || `auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    const logPrefix = config.taskId ? `[#${config.taskId}] ` : ''
+    const logPrefix = config.taskId ? `[#${config.taskId.slice(0, 12)}] ` : ''
 
     const cfg = newConfig(config)
     cfg.manualMode = false
-    const registrar = new Registrar(cfg, (msg) => sendLog(`${logPrefix}${msg}`))
+    const registrar = new Registrar(cfg, (msg) => sendLog(`${logPrefix}${msg}`, config.taskId))
     registrarPool.set(taskId, registrar)
 
     try {

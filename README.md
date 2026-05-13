@@ -271,6 +271,34 @@ The project is configured with GitHub Actions workflow for auto building all pla
 
 ## 📋 Changelog
 
+### v1.6.2 (2026-5-13)
+
+#### Account Switching
+- **Fixed**: Switching to Google/GitHub social login accounts no longer causes `Invalid token` error in Kiro IDE
+- **Fixed**: Token is now refreshed before writing to `kiro-auth-token.json`, ensuring Kiro IDE always gets a valid `accessToken`
+- **Fixed**: `profileArn` is now always included in the token file, auto-derived from provider when not stored (Google/GitHub → social profile, BuilderId → builder profile)
+- **Fixed**: Social login token file format now exactly matches official Kiro IDE output (no extra `region` or `clientIdHash` fields)
+- **Fixed**: Kiro CLI switch also refreshes token before writing, includes `profileArn`, and correctly identifies social vs IdC login
+- **Fixed**: CLI `isSocial` detection no longer incorrectly classifies BuilderId as social login
+
+#### Client Configuration
+- **Fixed**: One-click client configuration now loads models from proxy service first (consistent with "View Models" dialog), falls back to direct account query only when proxy is not running
+- **Fixed**: Claude Code configuration now writes `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, and `ANTHROPIC_DEFAULT_SONNET_MODEL` fields, matching the full official config format
+- **Fixed**: Hidden models (e.g., `claude-3.7-sonnet`) now appear in one-click client configuration model list
+
+#### Proxy & Network
+- **New**: System proxy auto-detection — Windows (registry `Internet Settings`) and macOS (`scutil --proxy`) with 30s cache
+- **Fixed**: All outbound connections now follow unified proxy priority: user-configured proxy → system proxy → direct
+- **Fixed**: Registration module (MoEmail, TempMail.Plus, Outlook OAuth, TLS client) no longer uses a separate proxy input; follows global proxy settings automatically
+- **Fixed**: Image download in proxy server also falls back to system proxy
+
+#### Registration
+- **New**: Auto-fetch Kiro Pro subscription link after registration — toggle in registration page, results displayed in Subscription page "Links" tab
+- **Improved**: Concurrent registration log isolation — each batch task prefixed with `[#taskId]` to prevent log mixing
+- **Improved**: Registration log events now carry structured `{ message, taskId }` for better filtering
+- **Fixed**: `refreshAppJSConfig` uses Promise lock to prevent concurrent workers from racing on app.js download
+- **Removed**: Per-registration proxy input field (now uses global proxy settings)
+
 ### v1.6.1 (2026-5-12)
 
 #### API Proxy Compatibility

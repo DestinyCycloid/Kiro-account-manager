@@ -271,6 +271,33 @@ npx electron-builder --linux --arm64
 
 ## 📋 更新日志
 
+### v1.6.2 (2026-5-13)
+
+#### 账号切换
+- **修复**: 切换 Google/GitHub 社交登录账号后 Kiro IDE 不再报 `Invalid token` 错误
+- **修复**: 切号前先刷新 Token，确保写入 `kiro-auth-token.json` 的 `accessToken` 始终有效
+- **修复**: `profileArn` 始终写入 token 文件，未存储时根据 provider 自动推导（Google/GitHub → 社交 profile，BuilderId → Builder profile）
+- **修复**: 社交登录的 token 文件格式与官方 Kiro IDE 完全一致（不再多余写入 `region`、`clientIdHash` 字段）
+- **修复**: Kiro CLI 切号同步支持切号前刷新 Token、写入 `profileArn`，并正确区分 social 和 IdC 登录
+- **修复**: CLI 的 `isSocial` 判断不再把 BuilderId 错误归类为社交登录
+
+#### 一键客户端配置
+- **修复**: 一键配置客户端优先从代理服务加载模型（与"查看模型"一致），代理未启动时回退到账号直连
+- **修复**: Claude Code 配置现在写入 `ANTHROPIC_DEFAULT_HAIKU_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL` 字段，匹配完整官方配置格式
+- **修复**: 隐藏模型（如 `claude-3.7-sonnet`）现在也会出现在一键配置的模型列表中
+
+#### 代理与网络
+- **新增**: 系统代理自动检测 — Windows（注册表 `Internet Settings`）和 macOS（`scutil --proxy`），30 秒缓存
+- **修复**: 所有出站连接统一代理优先级：用户手动设置代理 → 系统代理 → 直连
+- **修复**: 注册模块（MoEmail、TempMail.Plus、Outlook OAuth、TLS 客户端）不再使用独立的代理输入框，自动跟随全局代理设置
+- **修复**: 反代服务的图片下载也支持系统代理回退
+
+#### 注册功能
+- **新增**: 注册成功后自动获取 Kiro Pro 订阅链接 — 注册页面开关控制，结果展示在批量订阅页面「获取链接」标签
+- **优化**: 并发注册日志隔离 — 每个批量任务日志自动加 `[#taskId]` 前缀，避免多线程日志混乱
+- **优化**: 注册日志事件携带结构化 `{ message, taskId }`，便于过滤
+- **修复**: `refreshAppJSConfig` 使用 Promise 锁防止并发 worker 竞争下载 app.js
+- **移除**: 注册页面的独立代理输入框（统一使用全局代理设置）
 
 ### v1.6.1 (2026-5-12)
 

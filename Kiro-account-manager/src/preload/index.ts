@@ -136,6 +136,7 @@ const api = {
     startUrl?: string
     authMethod?: 'IdC' | 'social'
     provider?: 'BuilderId' | 'Github' | 'Google' | 'Enterprise'
+    profileArn?: string
   }): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke('switch-account', credentials)
   },
@@ -1097,7 +1098,8 @@ const api = {
 
   // 监听注册日志
   onRegistrationLog: (callback: (msg: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, msg: string): void => {
+    const handler = (_event: Electron.IpcRendererEvent, data: string | { message: string; taskId?: string }): void => {
+      const msg = typeof data === 'string' ? data : data.message
       callback(msg)
     }
     ipcRenderer.on('registration-log', handler)

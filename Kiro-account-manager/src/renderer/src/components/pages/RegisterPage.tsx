@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { UserPlus, Mail, Key, Loader2, CheckCircle2, XCircle, Trash2, Play, Square, Clock, RotateCcw, RefreshCw, Download, Settings2 } from 'lucide-react'
+import { UserPlus, Mail, Key, Loader2, CheckCircle2, XCircle, Trash2, Play, Square, Clock, RotateCcw, RefreshCw, Download, Settings2, Link2 } from 'lucide-react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useAccountsStore } from '@/store/accounts'
 import { Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Progress, Badge, Switch } from '../ui'
 import { cn } from '@/lib/utils'
+import { appendSubscriptionLink, updateSubscriptionLink } from './SubscriptionPage'
 
 type RegMode = 'manual' | 'moemail' | 'outlook' | 'tempmail'
 type Phase = 'idle' | 'initializing' | 'email' | 'otp' | 'running' | 'done'
@@ -33,6 +34,7 @@ interface HistoryItem {
   password?: string
   result?: RegResult
   imported: boolean
+  subscriptionUrl?: string
 }
 
 interface BatchItem {
@@ -96,7 +98,6 @@ function saveHistory(items: HistoryItem[]): void {
 
 interface RegisterConfig {
   mode: RegMode
-  proxy: string
   moBaseURL: string
   moAPIKey: string
   outlookData: string
@@ -106,6 +107,7 @@ interface RegisterConfig {
   batchAutoImport: boolean
   batchRetries: number
   batchConcurrency: number
+  autoFetchProLink: boolean
   tempMailEmail: string
   tempMailEpin: string
   tempMailDomain: string
@@ -154,9 +156,6 @@ export function RegisterPage(): React.JSX.Element {
   const [tempMailEmail, setTempMailEmail] = useState(saved.tempMailEmail || '')
   const [tempMailEpin, setTempMailEpin] = useState(saved.tempMailEpin || '')
   const [tempMailDomain, setTempMailDomain] = useState(saved.tempMailDomain || '')
-
-  // 通用配置
-  const [proxy, setProxy] = useState(saved.proxy || '')
 
   const logContainerRef = useRef<HTMLDivElement>(null)
   const { addAccount } = useAccountsStore()
@@ -210,7 +209,7 @@ export function RegisterPage(): React.JSX.Element {
     setImported(false)
     addLog(t('register.logManualInit'))
 
-    const config: Record<string, string> = { proxy }
+    const config: Record<string, string> = {}
     if (fullName.trim()) config.fullName = fullName.trim()
     const res = await window.api.registrationManualPhase1(config)
     if (res.success) {
@@ -260,6 +259,9 @@ export function RegisterPage(): React.JSX.Element {
           })
         }
       }
+      if (autoFetchProLink && regResult.status === 'success') {
+        await fetchProSubscriptionUrl(regResult, regResult.email)
+      }
     } else {
       addLog(`${t('register.logFailed')} ${res.error}`)
       setPhase('idle')
@@ -276,7 +278,7 @@ export function RegisterPage(): React.JSX.Element {
     const modeLabel = mode === 'moemail' ? 'MoEmail' : mode === 'tempmail' ? 'TempMail.Plus' : 'Outlook'
     addLog(t('register.logAutoStart').replace('{mode}', modeLabel))
 
-    const config: Record<string, unknown> = { proxy }
+    const config: Record<string, unknown> = {}
     if (mode === 'moemail') {
       config.moEmailBaseURL = moBaseURL
       config.moEmailAPIKey = moAPIKey
@@ -406,6 +408,7 @@ export function RegisterPage(): React.JSX.Element {
   const [batchAutoImport, setBatchAutoImport] = useState(saved.batchAutoImport ?? true)
   const [batchRetries, setBatchRetries] = useState(saved.batchRetries ?? 1)
   const [batchConcurrency, setBatchConcurrency] = useState(saved.batchConcurrency ?? 1)
+  const [autoFetchProLink, setAutoFetchProLink] = useState(saved.autoFetchProLink ?? false)
   const [batchItems, _setBatchItems] = useState<BatchItem[]>(_batchItems)
 
   const setBatchRunning = (v: boolean) => { _batchRunning = v; _refSetBatchRunning?.(v) }
@@ -425,8 +428,8 @@ export function RegisterPage(): React.JSX.Element {
 
   // 自动保存配置到 localStorage
   useEffect(() => {
-    saveConfig({ mode, proxy, moBaseURL, moAPIKey, outlookData, fullName, batchCount, batchInterval, batchAutoImport, batchRetries, batchConcurrency, tempMailEmail, tempMailEpin, tempMailDomain })
-  }, [mode, proxy, moBaseURL, moAPIKey, outlookData, fullName, batchCount, batchInterval, batchAutoImport, batchRetries, batchConcurrency, tempMailEmail, tempMailEpin, tempMailDomain])
+    saveConfig({ mode, moBaseURL, moAPIKey, outlookData, fullName, batchCount, batchInterval, batchAutoImport, batchRetries, batchConcurrency, autoFetchProLink, tempMailEmail, tempMailEpin, tempMailDomain })
+  }, [mode, moBaseURL, moAPIKey, outlookData, fullName, batchCount, batchInterval, batchAutoImport, batchRetries, batchConcurrency, autoFetchProLink, tempMailEmail, tempMailEpin, tempMailDomain])
 
   // ============ 注册历史 ============
 
@@ -510,6 +513,41 @@ export function RegisterPage(): React.JSX.Element {
     }
   }, [addAccount])
 
+  // 获取 Pro 订阅链接并写入订阅页面链接列表
+  const fetchProSubscriptionUrl = useCallback(async (regResult: RegResult, email: string): Promise<string | undefined> => {
+    const accessToken = regResult.accessToken
+    if (!accessToken) return undefined
+    const linkId = crypto.randomUUID()
+    appendSubscriptionLink({ accountId: linkId, email, status: 'loading' })
+    try {
+      addLog(`[Pro Link] ${email}: ${t('register.fetchingProLink')}...`)
+      const result = await window.api.accountGetSubscriptionUrl(
+        accessToken,
+        'Q_DEVELOPER_STANDALONE_PRO',
+        regResult.region || 'us-east-1',
+        undefined,
+        undefined,
+        'BuilderId',
+        'IdC',
+        undefined
+      )
+      if (result.success && result.url) {
+        addLog(`[Pro Link] ${email}: ${result.url}`)
+        updateSubscriptionLink(linkId, { status: 'success', url: result.url })
+        return result.url
+      }
+      const errMsg = result.error || 'Failed to get link'
+      addLog(`[Pro Link] ${email}: ${errMsg}`)
+      updateSubscriptionLink(linkId, { status: 'error', error: errMsg })
+      return undefined
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      addLog(`[Pro Link] ${email}: ${errMsg}`)
+      updateSubscriptionLink(linkId, { status: 'error', error: errMsg })
+      return undefined
+    }
+  }, [addLog, t])
+
   // 监听注册完成 - 同时记录到历史 + 自动导入
   const onRegComplete = useCallback(async (res: RegResult) => {
     setResult(res)
@@ -529,11 +567,14 @@ export function RegisterPage(): React.JSX.Element {
           })
         }
       }
+      if (autoFetchProLink) {
+        await fetchProSubscriptionUrl(res, res.email)
+      }
     } else {
       addLog(`${t('register.logRegFailed')} ${res.error}`)
       addHistory({ email: res.email, status: res.status, error: res.error, password: res.password, result: res })
     }
-  }, [addLog, addHistory, t, batchAutoImport, autoImportResult])
+  }, [addLog, addHistory, t, batchAutoImport, autoImportResult, autoFetchProLink, fetchProSubscriptionUrl])
 
   // 覆盖原有的 onRegistrationComplete 监听
   useEffect(() => {
@@ -543,7 +584,7 @@ export function RegisterPage(): React.JSX.Element {
 
   // 构建自动模式配置
   const buildAutoConfig = useCallback((): Parameters<typeof window.api.registrationStartAuto>[0] => {
-    const config: Record<string, unknown> = { proxy }
+    const config: Record<string, unknown> = {}
     if (mode === 'moemail') {
       config.moEmailBaseURL = moBaseURL
       config.moEmailAPIKey = moAPIKey
@@ -557,7 +598,7 @@ export function RegisterPage(): React.JSX.Element {
       config.outlookData = outlookData
     }
     return config as Parameters<typeof window.api.registrationStartAuto>[0]
-  }, [proxy, mode, moBaseURL, moAPIKey, outlookData, tempMailEmail, tempMailEpin, tempMailDomain])
+  }, [mode, moBaseURL, moAPIKey, outlookData, tempMailEmail, tempMailEpin, tempMailDomain])
 
   // 执行单次注册（含重试）
   const runSingleWithRetry = useCallback(async (
@@ -626,6 +667,9 @@ export function RegisterPage(): React.JSX.Element {
             return prev
           })
         }
+      }
+      if (autoFetchProLink) {
+        await fetchProSubscriptionUrl(outcome.result, outcome.result.email)
       }
     } else {
       setBatchFail((p) => p + 1)
@@ -803,16 +847,6 @@ export function RegisterPage(): React.JSX.Element {
             ))}
           </div>
 
-          {/* 通用代理设置 */}
-          <div className="space-y-1.5">
-            <Label>{t('register.proxyLabel')}</Label>
-            <Input
-              value={proxy}
-              onChange={(e) => setProxy(e.target.value)}
-              placeholder={t('register.proxyPlaceholder')}
-              disabled={isRunning || batchRunning}
-            />
-          </div>
 
           {/* 自动导入开关 */}
           <div className="flex items-center gap-3">
@@ -825,6 +859,20 @@ export function RegisterPage(): React.JSX.Element {
               <Download className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm">{t('register.batchAutoImport')}</span>
               <span className="text-xs text-muted-foreground">— {t('register.batchAutoImportDesc')}</span>
+            </div>
+          </div>
+
+          {/* 自动获取 Pro 订阅链接开关 */}
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={autoFetchProLink}
+              onCheckedChange={setAutoFetchProLink}
+              disabled={isRunning || batchRunning}
+            />
+            <div className="flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">{t('register.autoFetchProLink')}</span>
+              <span className="text-xs text-muted-foreground">— {t('register.autoFetchProLinkDesc')}</span>
             </div>
           </div>
 

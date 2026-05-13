@@ -6,6 +6,7 @@ const FALLBACK_IDENTIFIER = 'ECdITeCs'
 let cachedKey: [number, number, number, number] | null = null
 let cachedVersion = ''
 let cachedIdentifier = ''
+let refreshPromise: Promise<void> | null = null
 
 function extractFromAppJS(js: string): {
   key: [number, number, number, number] | null
@@ -37,33 +38,39 @@ export async function refreshAppJSConfig(
   fetchFn: (url: string, init?: RequestInit) => Promise<Response>
 ): Promise<void> {
   if (cachedKey) return
+  if (refreshPromise) return refreshPromise
 
-  try {
-    const resp = await fetchFn('https://us-east-1.signin.aws/assets/js/app.js', {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-        Accept: '*/*',
-        Referer: 'https://us-east-1.signin.aws/'
+  refreshPromise = (async () => {
+    if (cachedKey) return
+    try {
+      const resp = await fetchFn('https://us-east-1.signin.aws/assets/js/app.js', {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+          Accept: '*/*',
+          Referer: 'https://us-east-1.signin.aws/'
+        }
+      })
+      const js = await resp.text()
+      if (js) {
+        const result = extractFromAppJS(js)
+        if (result.key) cachedKey = result.key
+        if (result.identifier) cachedIdentifier = result.identifier
+        if (result.version) cachedVersion = result.version
       }
-    })
-    const js = await resp.text()
-    if (js) {
-      const result = extractFromAppJS(js)
-      if (result.key) cachedKey = result.key
-      if (result.identifier) cachedIdentifier = result.identifier
-      if (result.version) cachedVersion = result.version
+    } catch (err) {
+      console.log('[xxtea] 下载 app.js 失败:', err)
     }
-  } catch (err) {
-    console.log('[xxtea] 下载 app.js 失败:', err)
-  }
 
-  if (!cachedKey) {
-    console.log('[xxtea] 使用 fallback 密钥')
-    cachedKey = [...FALLBACK_KEY] as [number, number, number, number]
-  }
-  if (!cachedVersion) cachedVersion = FALLBACK_VER
-  if (!cachedIdentifier) cachedIdentifier = FALLBACK_IDENTIFIER
+    if (!cachedKey) {
+      console.log('[xxtea] 使用 fallback 密钥')
+      cachedKey = [...FALLBACK_KEY] as [number, number, number, number]
+    }
+    if (!cachedVersion) cachedVersion = FALLBACK_VER
+    if (!cachedIdentifier) cachedIdentifier = FALLBACK_IDENTIFIER
+  })()
+
+  return refreshPromise
 }
 
 export function getTESVersion(): string {

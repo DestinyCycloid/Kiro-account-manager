@@ -240,6 +240,12 @@ async function configureClaudeCode(context: ProxyClientContext): Promise<Omit<Pr
   env.ANTHROPIC_AUTH_TOKEN = context.apiKey
   env.ANTHROPIC_API_KEY = context.apiKey
   env.ANTHROPIC_MODEL = context.modelId
+  // 默认模型映射：让 Claude Code 的 haiku/opus/sonnet 快捷调用都走代理支持的模型
+  const haikuModel = context.models.find(m => m.id.toLowerCase().includes('haiku'))?.id || 'claude-haiku-4.5'
+  const opusModel = context.models.find(m => m.id.toLowerCase().includes('opus'))?.id || context.modelId
+  env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haikuModel
+  env.ANTHROPIC_DEFAULT_OPUS_MODEL = opusModel
+  env.ANTHROPIC_DEFAULT_SONNET_MODEL = context.modelId
   return { paths: [path], backupPaths: await writeJsonObject(path, config) }
 }
 

@@ -14,6 +14,7 @@ import {
   TempEmailService, MoEmailService, TempMailPlusService,
   parseOutlookLines, getInboxCount, waitForOTP
 } from './email-service'
+import { getSystemProxy } from '../proxy/systemProxy'
 
 export type LogFn = (message: string) => void
 
@@ -86,12 +87,13 @@ export class Registrar {
 
   /** TLS SessionClient 选项 */
   private get sessionOpts() {
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || getSystemProxy() || undefined
     return {
       tlsClientIdentifier: 'chrome_144' as const,
       timeoutSeconds: 60,
       followRedirects: true,
       insecureSkipVerify: true,
-      proxyUrl: this.cfg.proxy || undefined
+      proxyUrl
     }
   }
 
@@ -914,13 +916,7 @@ export class Registrar {
     const formData = `authCode=${encodeURIComponent(this.authCode)}&state=${encodeURIComponent(this.ssoState)}&orgId=view`
 
     // 使用新客户端轮询 SSO Token
-    const ssoSession = new SessionClient(this.moduleClient!, {
-      tlsClientIdentifier: 'chrome_144',
-      timeoutSeconds: 60,
-      followRedirects: true,
-      insecureSkipVerify: true,
-      proxyUrl: this.cfg.proxy || undefined
-    })
+    const ssoSession = new SessionClient(this.moduleClient!, this.sessionOpts)
 
     try {
       for (let retry = 0; retry < 5; retry++) {

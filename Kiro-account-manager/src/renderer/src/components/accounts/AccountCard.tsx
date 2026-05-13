@@ -203,7 +203,8 @@ export const AccountCard = memo(function AccountCard({
       region: credentials.region || 'us-east-1',
       startUrl: credentials.startUrl,
       authMethod: credentials.authMethod,
-      provider: credentials.provider
+      provider: credentials.provider,
+      profileArn: account.profileArn
     }
 
     let success = true

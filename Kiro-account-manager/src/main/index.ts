@@ -17,6 +17,7 @@ import {
   type DeviceIdMapping
 } from './kproxy'
 import { fetchKiroModels, fetchSubscriptionToken, fetchAvailableSubscriptions, setUserPreference, setUseKProxyForApiInProxy, setLogStreamEvents } from './proxy/kiroApi'
+import { getSystemProxy } from './proxy/systemProxy'
 import { proxyLogStore } from './proxy/logger'
 import { registerIPCHandlers as registerRegistrationHandlers } from './registration/ipc-handlers'
 import {
@@ -141,7 +142,7 @@ export function getUseKProxyForApi(): boolean {
   return useKProxyForApi
 }
 
-// 获取网络代理 agent（优先 K-Proxy，其次环境变量代理）
+// 获取网络代理 agent（优先 K-Proxy，其次用户设置代理，其次系统代理）
 function getNetworkAgent(): ProxyAgent | undefined {
   if (useKProxyForApi) {
     const kproxyService = getKProxyService()
@@ -154,6 +155,10 @@ function getNetworkAgent(): ProxyAgent | undefined {
   const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy
   if (envProxy) {
     return new ProxyAgent({ uri: envProxy, requestTls: { rejectUnauthorized: false } })
+  }
+  const systemProxy = getSystemProxy()
+  if (systemProxy) {
+    return new ProxyAgent({ uri: systemProxy, requestTls: { rejectUnauthorized: false } })
   }
   return undefined
 }
@@ -3533,6 +3538,7 @@ app.whenReady().then(async () => {
     startUrl?: string
     authMethod?: 'IdC' | 'social'
     provider?: 'BuilderId' | 'Github' | 'Google' | 'Enterprise'
+    profileArn?: string
   }) => {
     const os = await import('os')
     const path = await import('path')
@@ -3541,15 +3547,29 @@ app.whenReady().then(async () => {
     
     try {
       const { 
-        accessToken, 
         refreshToken, 
         clientId, 
         clientSecret, 
         region = 'us-east-1',
         startUrl,
         authMethod = 'IdC',
-        provider = 'BuilderId'
+        provider = 'BuilderId',
+        profileArn
       } = credentials
+      let { accessToken } = credentials
+
+      // 切号前先刷新 token，确保写入的 accessToken 是最新的
+      // Kiro IDE 会直接使用 accessToken（不过期就不刷新），旧 token 会导致 Invalid token
+      if (refreshToken) {
+        console.log(`[Switch Account] Refreshing token before switch (authMethod: ${authMethod})...`)
+        const refreshResult = await refreshTokenByMethod(refreshToken, clientId, clientSecret, region, authMethod)
+        if (refreshResult.success && refreshResult.accessToken) {
+          accessToken = refreshResult.accessToken
+          console.log('[Switch Account] Token refreshed successfully')
+        } else {
+          console.warn(`[Switch Account] Token refresh failed: ${refreshResult.error}, using existing token`)
+        }
+      }
       
       // 计算 clientIdHash (与 Kiro 客户端一致)
       // Enterprise 账户使用自己的 startUrl，BuilderId 使用默认的
@@ -3562,17 +3582,35 @@ app.whenReady().then(async () => {
       const ssoCache = path.join(os.homedir(), '.aws', 'sso', 'cache')
       await mkdir(ssoCache, { recursive: true })
       
-      // 写入 token 文件
+      // 根据 provider 推导 profileArn（官方固定规则）
+      const SOCIAL_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK'
+      const BUILDER_ID_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
+      const resolvedProfileArn = profileArn
+        || (authMethod === 'social' || provider === 'Google' || provider === 'Github' ? SOCIAL_PROFILE_ARN : BUILDER_ID_PROFILE_ARN)
+
+      // 写入 token 文件（格式与官方 Kiro IDE 完全一致）
       const tokenPath = path.join(ssoCache, 'kiro-auth-token.json')
-      const tokenData = {
-        accessToken,
-        refreshToken,
-        expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
-        clientIdHash,
-        authMethod,
-        provider,
-        region
-      }
+      const tokenData: Record<string, unknown> = authMethod === 'social'
+        ? {
+            // Social 登录格式：accessToken, refreshToken, profileArn, expiresAt, authMethod, provider
+            accessToken,
+            refreshToken,
+            profileArn: resolvedProfileArn,
+            expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+            authMethod,
+            provider
+          }
+        : {
+            // IdC 登录格式：accessToken, refreshToken, expiresAt, clientIdHash, authMethod, provider, region
+            accessToken,
+            refreshToken,
+            expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+            clientIdHash,
+            authMethod,
+            provider,
+            region,
+            profileArn: resolvedProfileArn
+          }
       await writeFile(tokenPath, JSON.stringify(tokenData, null, 2))
       console.log('[Switch Account] Token saved to:', tokenPath)
       
@@ -3621,7 +3659,6 @@ app.whenReady().then(async () => {
 
     try {
       const {
-        accessToken,
         refreshToken,
         clientId,
         clientSecret,
@@ -3630,6 +3667,20 @@ app.whenReady().then(async () => {
         provider,
         scopes
       } = credentials
+      let { accessToken } = credentials
+
+      // 切号前先刷新 token（和 IDE 切号一致）
+      if (refreshToken) {
+        const authMethod = (provider === 'Google' || provider === 'Github') ? 'social' : undefined
+        console.log(`[Switch CLI] Refreshing token before switch (provider: ${provider})...`)
+        const refreshResult = await refreshTokenByMethod(refreshToken, clientId || '', clientSecret || '', region, authMethod)
+        if (refreshResult.success && refreshResult.accessToken) {
+          accessToken = refreshResult.accessToken
+          console.log('[Switch CLI] Token refreshed successfully')
+        } else {
+          console.warn(`[Switch CLI] Token refresh failed: ${refreshResult.error}, using existing token`)
+        }
+      }
 
       // kiro-cli SQLite 数据库路径
       // Windows: %LOCALAPPDATA%\kiro-cli\data.sqlite3
@@ -3641,9 +3692,14 @@ app.whenReady().then(async () => {
       const dbPath = path.join(dataDir, 'data.sqlite3')
 
       // 判断 token key：social 登录用 social:token，IdC 登录用 odic:token
-      const isSocial = !clientId || !clientSecret || provider === 'BuilderId' || provider === 'Google' || provider === 'Github'
+      const isSocial = provider === 'Google' || provider === 'Github'
       const preferredTokenKey = isSocial ? 'kirocli:social:token' : 'kirocli:odic:token'
       const preferredRegKey = 'kirocli:odic:device-registration'
+
+      // 根据 provider 推导 profileArn
+      const SOCIAL_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK'
+      const BUILDER_ID_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
+      const resolvedProfileArn = profileArn || (isSocial ? SOCIAL_PROFILE_ARN : BUILDER_ID_PROFILE_ARN)
 
       // 构建 token JSON（snake_case 字段名，与 kiro-cli Rust 结构一致）
       const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString()
@@ -3651,9 +3707,9 @@ app.whenReady().then(async () => {
         access_token: accessToken,
         refresh_token: refreshToken,
         expires_at: expiresAt,
-        region
+        region,
+        profile_arn: resolvedProfileArn
       }
-      if (profileArn) tokenData.profile_arn = profileArn
       if (scopes) tokenData.scopes = scopes
 
       // 使用 sqlite3 命令行操作（跨平台兼容，无需原生模块编译）

@@ -45,6 +45,17 @@ interface OverageItem {
 
 // 模块级状态：组件卸载后仍保留（同一会话内）
 let _links: SubscriptionLink[] = []
+let _linksNotify: ((links: SubscriptionLink[]) => void) | null = null
+
+export function appendSubscriptionLink(link: SubscriptionLink): void {
+  _links = [..._links, link]
+  _linksNotify?.(_links)
+}
+
+export function updateSubscriptionLink(accountId: string, update: Partial<SubscriptionLink>): void {
+  _links = _links.map(l => l.accountId === accountId ? { ...l, ...update } : l)
+  _linksNotify?.(_links)
+}
 let _availablePlans: SubscriptionPlan[] = []
 let _selectedPlanType = ''
 let _selectedLinkIds: Set<string> = new Set()
@@ -103,6 +114,12 @@ export function SubscriptionPage() {
       return next
     })
   }
+
+  // 注册外部写入回调（让 appendSubscriptionLink/updateSubscriptionLink 同步 React state）
+  useEffect(() => {
+    _linksNotify = setLinksState
+    return () => { _linksNotify = null }
+  }, [])
 
   // 超额列表自动滚动到底部
   useEffect(() => {

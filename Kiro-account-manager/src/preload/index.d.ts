@@ -173,6 +173,7 @@ interface KiroApi {
     startUrl?: string
     authMethod?: 'IdC' | 'social'
     provider?: 'BuilderId' | 'Enterprise' | 'Github' | 'Google' | 'IAM_SSO'
+    profileArn?: string
   }) => Promise<{ success: boolean; error?: string }>
 
   // 切换账号到 Kiro CLI - 写入凭证到 SQLite 数据库

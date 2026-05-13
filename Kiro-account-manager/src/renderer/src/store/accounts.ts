@@ -1778,7 +1778,8 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
             region: creds.region || 'us-east-1',
             startUrl: creds.startUrl,
             authMethod: creds.authMethod,
-            provider: creds.provider
+            provider: creds.provider,
+            profileArn: (availableAccount as { profileArn?: string }).profileArn
           })
         }
         if (target === 'cli' || target === 'both') {

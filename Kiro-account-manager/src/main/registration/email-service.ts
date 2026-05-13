@@ -1,4 +1,19 @@
 import * as tls from 'tls'
+import { ProxyAgent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
+import { getSystemProxy } from '../proxy/systemProxy'
+
+function getRegistrationProxyUrl(): string | undefined {
+  return process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || getSystemProxy() || undefined
+}
+
+async function proxyFetch(url: string, options?: RequestInit): Promise<Response> {
+  const proxyUrl = getRegistrationProxyUrl()
+  if (proxyUrl) {
+    const agent = new ProxyAgent({ uri: proxyUrl, requestTls: { rejectUnauthorized: false } })
+    return await undiciFetch(url, { ...options, dispatcher: agent } as UndiciRequestInit) as unknown as Response
+  }
+  return await fetch(url, options)
+}
 
 // ============ 验证码提取 ============
 
@@ -35,7 +50,7 @@ export class MoEmailService implements TempEmailService {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`
 
-    const resp = await fetch(url, { method: 'POST', headers, signal: AbortSignal.timeout(30000) })
+    const resp = await proxyFetch(url, { method: 'POST', headers, signal: AbortSignal.timeout(30000) })
     const data = (await resp.json()) as Record<string, unknown>
 
     const addr =
@@ -79,7 +94,7 @@ export class MoEmailService implements TempEmailService {
     const headers: Record<string, string> = {}
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`
 
-    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(15000) })
+    const resp = await proxyFetch(url, { headers, signal: AbortSignal.timeout(15000) })
     const raw = await resp.json()
 
     let messages: Array<Record<string, unknown>> = []
@@ -219,7 +234,7 @@ export class TempMailPlusService implements TempEmailService {
 
   private async fetchMailList(): Promise<Array<Record<string, unknown>>> {
     const url = `${TempMailPlusService.BASE_URL}/mails?email=${encodeURIComponent(this.fullEmail)}&first_id=0&epin=${encodeURIComponent(this.epin)}`
-    const resp = await fetch(url, { headers: this.headers, signal: AbortSignal.timeout(15000) })
+    const resp = await proxyFetch(url, { headers: this.headers, signal: AbortSignal.timeout(15000) })
     const data = (await resp.json()) as Record<string, unknown>
     if (!data.result) return []
     return (data.mail_list as Array<Record<string, unknown>>) || []
@@ -227,7 +242,7 @@ export class TempMailPlusService implements TempEmailService {
 
   private async fetchMailDetail(mailId: number): Promise<Record<string, unknown> | null> {
     const url = `${TempMailPlusService.BASE_URL}/mails/${mailId}?email=${encodeURIComponent(this.fullEmail)}&epin=${encodeURIComponent(this.epin)}`
-    const resp = await fetch(url, { headers: this.headers, signal: AbortSignal.timeout(15000) })
+    const resp = await proxyFetch(url, { headers: this.headers, signal: AbortSignal.timeout(15000) })
     const data = (await resp.json()) as Record<string, unknown>
     return data.result ? data : null
   }
@@ -237,7 +252,7 @@ export class TempMailPlusService implements TempEmailService {
     const headers = { ...this.headers, 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8' }
     const body = `email=${encodeURIComponent(this.fullEmail)}&epin=${encodeURIComponent(this.epin)}`
     try {
-      await fetch(url, { method: 'DELETE', headers, body, signal: AbortSignal.timeout(10000) })
+      await proxyFetch(url, { method: 'DELETE', headers, body, signal: AbortSignal.timeout(10000) })
       console.log(`[TempMailPlus] 已删除邮件: ${mailId}`)
     } catch (err) {
       console.log(`[TempMailPlus] 删除邮件失败:`, err)
@@ -304,7 +319,7 @@ export async function refreshOutlookToken(acc: OutlookAccount): Promise<string> 
     scope: 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access'
   })
 
-  const resp = await fetch(
+  const resp = await proxyFetch(
     'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
     { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() }
   )

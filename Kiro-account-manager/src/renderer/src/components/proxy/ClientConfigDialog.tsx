@@ -103,6 +103,15 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
     setError(null)
     setResults([])
     try {
+      // 优先从代理服务获取模型（与"查看模型"一致）
+      const proxyModels = await window.api.proxyGetModels()
+      if (proxyModels.success && proxyModels.models.length > 0) {
+        setModels(proxyModels.models)
+        setSelectedModelId(current => proxyModels.models.some(model => model.id === current) ? current : proxyModels.models[0].id)
+        return
+      }
+
+      // 代理未启动或无模型时，回退到账号直连
       const activeAccount = activeAccountId ? accounts.get(activeAccountId) : undefined
       const account = activeAccount?.status === 'active' && activeAccount.credentials?.accessToken
         ? activeAccount
@@ -122,13 +131,6 @@ export function ClientConfigDialog({ open, onOpenChange, isEn }: ClientConfigDia
           setSelectedModelId(current => accountModels.models.some(model => model.id === current) ? current : accountModels.models[0]?.id || '')
           return
         }
-      }
-
-      const proxyModels = await window.api.proxyGetModels()
-      if (proxyModels.success && proxyModels.models.length > 0) {
-        setModels(proxyModels.models)
-        setSelectedModelId(current => proxyModels.models.some(model => model.id === current) ? current : proxyModels.models[0].id)
-        return
       }
 
       setModels([])

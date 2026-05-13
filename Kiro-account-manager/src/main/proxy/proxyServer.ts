@@ -467,6 +467,12 @@ export class ProxyServer {
           const { ProxyAgent } = require('undici')
           return new ProxyAgent({ uri: envProxy, requestTls: { rejectUnauthorized: false } })
         }
+        const { getSystemProxy } = require('./systemProxy')
+        const systemProxy = getSystemProxy()
+        if (systemProxy) {
+          const { ProxyAgent } = require('undici')
+          return new ProxyAgent({ uri: systemProxy, requestTls: { rejectUnauthorized: false } })
+        }
         return undefined
       })()
       const { fetch: undiciFetch } = require('undici')
@@ -754,28 +760,40 @@ export class ProxyServer {
   async getAvailableModels(signal?: AbortSignal): Promise<{ models: ReturnType<typeof ProxyServer.mapKiroModelToApi>[]; fromCache: boolean }> {
     const now = Date.now()
     
+    let kiroModels: KiroModel[]
+    let fromCache = false
+
     if (this.modelCache && (now - this.modelCache.timestamp) < this.MODEL_CACHE_TTL) {
-      return { models: this.modelCache.models.map(ProxyServer.mapKiroModelToApi), fromCache: true }
-    }
-
-    this.throwIfAborted(signal)
-    const account = await this.getAvailableAccount(signal)
-    this.throwIfAborted(signal)
-    if (!account) {
-      return { models: [], fromCache: false }
-    }
-
-    try {
-      const kiroModels = await fetchKiroModels(account, signal)
-      if (kiroModels.length > 0) {
-        this.modelCache = { models: kiroModels, timestamp: now }
+      kiroModels = this.modelCache.models
+      fromCache = true
+    } else {
+      this.throwIfAborted(signal)
+      const account = await this.getAvailableAccount(signal)
+      this.throwIfAborted(signal)
+      if (!account) {
+        return { models: [], fromCache: false }
       }
-      return { models: kiroModels.map(ProxyServer.mapKiroModelToApi), fromCache: false }
-    } catch (error) {
-      if (this.isAbortError(error, signal)) throw error
-      console.error('[ProxyServer] Failed to fetch models:', error)
-      return { models: [], fromCache: false }
+
+      try {
+        kiroModels = await fetchKiroModels(account, signal)
+        if (kiroModels.length > 0) {
+          this.modelCache = { models: kiroModels, timestamp: now }
+        }
+      } catch (error) {
+        if (this.isAbortError(error, signal)) throw error
+        console.error('[ProxyServer] Failed to fetch models:', error)
+        return { models: [], fromCache: false }
+      }
     }
+
+    // 合并隐藏模型（与 /v1/models 端点一致）
+    const modelIds = new Set(kiroModels.map(m => m.modelId))
+    const hiddenModels: KiroModel[] = [
+      { modelId: 'claude-3.7-sonnet', modelName: 'Claude 3.7 Sonnet', description: 'Claude 3.7 Sonnet (hidden)', supportedInputTypes: ['TEXT', 'IMAGE'], tokenLimits: { maxInputTokens: 200000, maxOutputTokens: 64000 } } as KiroModel
+    ]
+    const merged = [...kiroModels, ...hiddenModels.filter(m => !modelIds.has(m.modelId))]
+
+    return { models: merged.map(ProxyServer.mapKiroModelToApi), fromCache }
   }
 
   // 检查 Token 是否需要刷新
