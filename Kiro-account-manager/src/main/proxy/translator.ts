@@ -82,9 +82,41 @@ export function responsesToOpenAIChat(request: OpenAIResponsesRequest): OpenAICh
     if (!Array.isArray(request.input)) {
       throw new Error('Responses input must be a string or an array')
     }
+    let pendingToolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[] = []
+
+    const flushPendingToolCalls = () => {
+      if (pendingToolCalls.length > 0) {
+        messages.push({
+          role: 'assistant',
+          content: '',
+          tool_calls: [...pendingToolCalls]
+        })
+        pendingToolCalls = []
+      }
+    }
+
     for (const item of request.input) {
       const itemType = item.type as string | undefined
-      if (itemType === 'function_call_output') {
+      if (itemType === 'function_call') {
+        if (!item.call_id) {
+          throw new Error('function_call requires call_id')
+        }
+        if (!item.name) {
+          throw new Error('function_call requires name')
+        }
+        if (item.arguments === undefined) {
+          throw new Error('function_call requires arguments')
+        }
+        pendingToolCalls.push({
+          id: item.call_id,
+          type: 'function',
+          function: {
+            name: item.name,
+            arguments: item.arguments
+          }
+        })
+      } else if (itemType === 'function_call_output') {
+        flushPendingToolCalls()
         if (!item.call_id) {
           throw new Error('function_call_output requires call_id')
         }
@@ -96,34 +128,13 @@ export function responsesToOpenAIChat(request: OpenAIResponsesRequest): OpenAICh
           content: item.output,
           tool_call_id: item.call_id
         })
-      } else if (itemType === 'function_call') {
-        if (!item.call_id) {
-          throw new Error('function_call requires call_id')
-        }
-        if (!item.name) {
-          throw new Error('function_call requires name')
-        }
-        if (item.arguments === undefined) {
-          throw new Error('function_call requires arguments')
-        }
-        messages.push({
-          role: 'assistant',
-          content: '',
-          tool_calls: [{
-            id: item.call_id,
-            type: 'function',
-            function: {
-              name: item.name,
-              arguments: item.arguments
-            }
-          }]
-        })
       } else {
+        flushPendingToolCalls()
         if (itemType !== undefined && itemType !== 'message') {
-          throw new Error(`Unsupported responses input item type: ${itemType}`)
+          continue
         }
         if (item.content === undefined) {
-          throw new Error('message input item requires content')
+          continue
         }
         messages.push({
           role: item.role === 'assistant' ? 'assistant' : item.role === 'system' ? 'system' : 'user',
@@ -131,6 +142,7 @@ export function responsesToOpenAIChat(request: OpenAIResponsesRequest): OpenAICh
         })
       }
     }
+    flushPendingToolCalls()
   }
 
   const chatRequest: OpenAIChatRequest = {
@@ -141,7 +153,7 @@ export function responsesToOpenAIChat(request: OpenAIResponsesRequest): OpenAICh
   if (request.top_p !== undefined) chatRequest.top_p = request.top_p
   if (request.max_output_tokens !== undefined) chatRequest.max_tokens = request.max_output_tokens
   if (request.stream !== undefined) chatRequest.stream = request.stream
-  if (request.tools !== undefined) chatRequest.tools = request.tools
+  if (request.tools !== undefined) chatRequest.tools = normalizeResponsesTools(request.tools)
   const toolChoice = convertResponseToolChoice(request.tool_choice)
   if (toolChoice !== undefined) chatRequest.tool_choice = toolChoice
   if (request.previous_response_id !== undefined) chatRequest.conversation_id = request.previous_response_id
@@ -196,6 +208,39 @@ function convertResponseToolChoice(toolChoice: OpenAIResponsesRequest['tool_choi
   throw new Error('Unsupported responses tool_choice')
 }
 
+function normalizeResponsesTools(tools: OpenAITool[]): OpenAITool[] {
+  return tools
+    .filter(tool => {
+      const t = tool as unknown as { type?: string }
+      if (t.type && t.type !== 'function') return false
+      return true
+    })
+    .map(tool => {
+      if (tool.function && typeof tool.function === 'object' && tool.function.name) {
+        return tool
+      }
+      const flat = tool as unknown as {
+        type: string
+        name?: string
+        description?: string
+        parameters?: unknown
+        cache_control?: unknown
+      }
+      if (flat.name) {
+        return {
+          type: 'function' as const,
+          function: {
+            name: flat.name,
+            description: flat.description || `Tool: ${flat.name}`,
+            parameters: flat.parameters || { type: 'object', properties: {} }
+          },
+          ...(flat.cache_control ? { cache_control: flat.cache_control as any } : {})
+        } as OpenAITool
+      }
+      return tool
+    })
+}
+
 export function openAIChatToResponsesResponse(
   response: OpenAIChatResponse,
   previousResponseId?: string
@@ -207,16 +252,25 @@ export function openAIChatToResponsesResponse(
         id: `fc_${uuidv4()}`,
         call_id: toolCall.id,
         name: toolCall.function.name,
-        arguments: toolCall.function.arguments
+        arguments: toolCall.function.arguments,
+        status: 'completed' as const
       }))
     }
     return [{
       type: 'message' as const,
       id: `msg_${uuidv4()}`,
       role: 'assistant' as const,
+      status: 'completed' as const,
       content: [{ type: 'output_text' as const, text: choice.message.content || '' }]
     }]
   })
+
+  const outputText = output
+    .filter((item): item is Extract<OpenAIResponseOutputItem, { type: 'message' }> => item.type === 'message')
+    .flatMap(item => item.content)
+    .filter(part => part.type === 'output_text')
+    .map(part => part.text)
+    .join('') || null
 
   const usage: OpenAIResponsesResponse['usage'] = {
     input_tokens: response.usage.prompt_tokens,
@@ -236,8 +290,12 @@ export function openAIChatToResponsesResponse(
     id: `resp_${uuidv4()}`,
     object: 'response',
     created_at: response.created,
+    status: 'completed',
     model: response.model,
     output,
+    output_text: outputText,
+    error: null,
+    incomplete_details: null,
     usage
   }
   if (previousResponseId !== undefined) {
@@ -602,16 +660,66 @@ function convertOpenAITools(
     if (description.length > KIRO_MAX_TOOL_DESC_LEN) {
       description = description.substring(0, KIRO_MAX_TOOL_DESC_LEN) + '...'
     }
+    const parameters = sanitizeToolParameters(tool.function.parameters)
     const kiroTool: KiroToolWrapper = {
       toolSpecification: {
         name: shortenToolName(tool.function.name, toolNameRegistry),
         description,
-        inputSchema: { json: tool.function.parameters }
+        inputSchema: { json: parameters }
       }
     }
     const cachePoint = toKiroCachePoint(tool.cache_control)
     return cachePoint ? [kiroTool, { cachePoint }] : [kiroTool]
   })
+}
+
+function sanitizeToolParameters(parameters: unknown): Record<string, unknown> {
+  if (!parameters || typeof parameters !== 'object') {
+    return { type: 'object', properties: {} }
+  }
+  const params = parameters as Record<string, unknown>
+  if (Object.keys(params).length === 0) {
+    return { type: 'object', properties: {} }
+  }
+  return cleanSchemaObject(JSON.parse(JSON.stringify(params)))
+}
+
+function cleanSchemaObject(obj: Record<string, unknown>): Record<string, unknown> {
+  delete obj['$schema']
+  delete obj['additionalProperties']
+  delete obj['$defs']
+  delete obj['$ref']
+
+  if (!obj.type) {
+    obj.type = 'object'
+  }
+
+  if (obj.properties && typeof obj.properties === 'object') {
+    const props = obj.properties as Record<string, unknown>
+    for (const key of Object.keys(props)) {
+      const prop = props[key]
+      if (prop && typeof prop === 'object' && !Array.isArray(prop)) {
+        props[key] = cleanSchemaObject(prop as Record<string, unknown>)
+      }
+    }
+  }
+
+  if (obj.items && typeof obj.items === 'object' && !Array.isArray(obj.items)) {
+    obj.items = cleanSchemaObject(obj.items as Record<string, unknown>)
+  }
+
+  for (const key of ['anyOf', 'oneOf', 'allOf']) {
+    if (Array.isArray(obj[key])) {
+      obj[key] = (obj[key] as unknown[]).map(item => {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          return cleanSchemaObject(item as Record<string, unknown>)
+        }
+        return item
+      })
+    }
+  }
+
+  return obj
 }
 
 function shortenToolName(name: string, toolNameRegistry: ToolNameRegistry): string {
