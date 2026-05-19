@@ -34,6 +34,7 @@ const KIRO_CACHE_POINT: KiroCachePoint = { type: 'default' }
 
 // 判断模型是否支持 additionalModelRequestFields.thinking 参数
 // 只有 Claude 4+ 系列模型支持，非 Claude 模型（deepseek/minimax/glm/qwen 等）不支持
+// 注意：根据实际测试，某些模型即使是 Claude 4+ 也可能不支持，需要保守处理
 function modelSupportsThinkingParam(modelId: string): boolean {
   const lower = modelId.toLowerCase()
   // 必须是 claude 模型
@@ -42,8 +43,20 @@ function modelSupportsThinkingParam(modelId: string): boolean {
   if (lower.includes('claude-3-') || lower.includes('claude-3.')) return false
   // auto 模型由后端决定，保守不传
   if (lower === 'auto') return false
-  // claude-sonnet-4、claude-opus-4、claude-haiku-4.5 等都支持
-  return true
+  
+  // 根据实际测试，暂时禁用所有模型的 additionalModelRequestFields
+  // 因为 Kiro 后端对某些模型会返回 "additionalModelRequestFields is not supported for this model"
+  // 如果需要启用，请根据具体模型 ID 白名单方式启用
+  return false
+  
+  // 以下代码暂时注释，如需启用请取消注释并根据实际支持的模型调整
+  // // 只有明确的 Claude 4+ 模型才支持
+  // // 包括: claude-4, claude-sonnet-4, claude-opus-4, claude-haiku-4
+  // if (lower.includes('claude-4') || lower.includes('sonnet-4') || lower.includes('opus-4') || lower.includes('haiku-4')) {
+  //   return true
+  // }
+  // // 其他情况保守返回 false，避免向不支持的模型发送 additionalModelRequestFields
+  // return false
 }
 
 function toKiroCachePoint(cacheControl?: { type: string }): KiroCachePoint | undefined {
