@@ -37,10 +37,14 @@ jobs:
       - name: Extract changelog from README
         id: extract_changelog
         run: |
-          # 提取英文更新日志（从 ### v 开始到下一个 ### 或文件结束）
-          CHANGELOG_EN=$(awk '/^### v[0-9]+\.[0-9]+\.[0-9]+/{if(found) exit; found=1} found' README.md)
-          # 提取中文更新日志
-          CHANGELOG_CN=$(awk '/^### v[0-9]+\.[0-9]+\.[0-9]+/{if(found) exit; found=1} found' README_CN.md)
+          # 从根 README 提取更新日志（若未匹配到则给默认值）
+          CHANGELOG_EN=$(awk '/^### v[0-9]+\.[0-9]+\.[0-9]+/{if(found) exit; found=1} found' README.md || true)
+          if [ -z "$CHANGELOG_EN" ]; then
+            CHANGELOG_EN="Release notes are maintained in README.md."
+          fi
+
+          # 已移除 README_CN.md，这里使用同一份内容作为中文回退
+          CHANGELOG_CN="$CHANGELOG_EN"
           
           # 使用 EOF 处理多行输出
           echo "changelog_en<<EOF" >> $GITHUB_OUTPUT
