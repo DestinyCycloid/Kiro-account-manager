@@ -39,10 +39,10 @@ export function Select({ value, options, onChange, placeholder = '请选择', cl
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          'flex items-center justify-between gap-2 px-3 py-2 w-full rounded-lg border bg-background text-sm transition-all duration-200',
-          'hover:border-primary/50 hover:bg-muted/50',
-          isOpen && 'border-primary ring-2 ring-primary/20',
-          !isOpen && 'border-border'
+          'flex items-center justify-between gap-2 px-3 py-2 w-full rounded-lg border bg-[var(--glass-bg)] backdrop-blur-md text-sm transition-all duration-200 shadow-sm',
+          'hover:border-primary/50 hover:bg-[var(--glass-bg-strong)]',
+          isOpen && 'border-primary/50 ring-2 ring-primary/30',
+          !isOpen && 'border-foreground/15'
         )}
       >
         <span className={cn(!selectedOption && 'text-muted-foreground')}>
@@ -56,7 +56,7 @@ export function Select({ value, options, onChange, placeholder = '请选择', cl
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-1 py-1 rounded-lg border bg-background shadow-lg shadow-black/10 z-50 animate-in fade-in-0 zoom-in-95 duration-100">
+        <div className="absolute top-full left-0 right-0 mt-1 py-1 rounded-xl glass-card-strong z-50 animate-in fade-in-0 zoom-in-95 duration-100">
           {options.map((option) => (
             <button
               key={option.value}

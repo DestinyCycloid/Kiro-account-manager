@@ -183,9 +183,9 @@ export function ModelMappingDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
-      <Card className="relative w-[900px] max-h-[85vh] shadow-2xl border overflow-hidden animate-in fade-in zoom-in-95 duration-200 bg-gradient-to-br from-background to-muted/20">
-        <CardHeader className="pb-4 border-b sticky top-0 bg-background/95 backdrop-blur z-10">
+      <div className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl" onClick={() => onOpenChange(false)} />
+      <Card className="relative w-[900px] max-h-[85vh] shadow-2xl border-0 overflow-hidden animate-in fade-in zoom-in-95 duration-200 glass-card-strong">
+        <CardHeader className="pb-4 border-b sticky top-0 z-10">
           <div className="flex items-center justify-between">
             <CardTitle className="text-xl flex items-center gap-3">
               <div className="p-2 rounded-xl bg-primary/10">
@@ -210,7 +210,7 @@ export function ModelMappingDialog({
                 <Plus className="h-4 w-4 mr-1" />
                 {isEn ? 'Add Rule' : '添加规则'}
               </Button>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-destructive/10 hover:text-destructive" onClick={() => onOpenChange(false)}>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-lg hover:bg-red-500 hover:text-white transition-colors" onClick={() => onOpenChange(false)}>
                 <X className="h-5 w-5" />
               </Button>
             </div>
@@ -457,3 +457,5 @@ export function ModelMappingDialog({
     </div>
   )
 }
+
+

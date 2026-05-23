@@ -1,4 +1,5 @@
-import { Home, Users, Settings, Info, ChevronLeft, ChevronRight, Fingerprint, Sparkles, Server, Shield, UserPlus, CreditCard, ScrollText } from 'lucide-react'
+import { Home, Users, Settings, Info, ChevronRight, Fingerprint, Sparkles, Server, Shield, UserPlus, CreditCard, ScrollText } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import kiroLogo from '@/assets/kiro-high-resolution-logo-transparent.png'
 import kiroLogoSmall from '@/assets/Kiro Logo.svg'
@@ -31,36 +32,53 @@ const menuItemsConfig: { id: PageType; labelKey: string; icon: React.ElementType
 export function Sidebar({ currentPage, onPageChange, collapsed, onToggleCollapse }: SidebarProps) {
   const { darkMode } = useAccountsStore()
   const { t } = useTranslation()
+  const isEn = t('common.unknown') === 'Unknown'
 
   return (
-    <div 
-      className={cn(
-        "h-screen bg-card border-r flex flex-col transition-all duration-300",
-        collapsed ? "w-16" : "w-52"
-      )}
+    <motion.aside
+      initial={false}
+      animate={{ width: collapsed ? 64 : 224 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+      className="glass-sidebar rounded-3xl flex flex-col overflow-hidden shrink-0"
     >
       {/* Logo */}
-      <div className="h-12 flex items-center justify-center border-b px-2 gap-2 overflow-hidden">
-        {collapsed ? (
-          <img 
-            src={kiroLogoSmall} 
-            alt="Kiro" 
-            className={cn("h-14 w-14 object-contain transition-all", darkMode && "invert brightness-0")} 
-          />
-        ) : (
-          <>
-            <img 
-              src={kiroLogo} 
-              alt="Kiro" 
-              className={cn("h-7 w-auto shrink-0 transition-all", darkMode && "invert brightness-0")} 
+      <div className="h-14 flex items-center justify-center px-3 gap-2 overflow-hidden border-b border-white/10 dark:border-white/5">
+        <AnimatePresence mode="wait" initial={false}>
+          {collapsed ? (
+            <motion.img
+              key="logo-small"
+              src={kiroLogoSmall}
+              alt="Kiro"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 0.2 }}
+              className={cn('h-10 w-10 object-contain', darkMode && 'invert brightness-0')}
             />
-            <span className="font-semibold text-foreground whitespace-nowrap">{t('common.unknown') === 'Unknown' ? 'Account Manager' : '账户管理器'}</span>
-          </>
-        )}
+          ) : (
+            <motion.div
+              key="logo-full"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-center gap-2"
+            >
+              <img
+                src={kiroLogo}
+                alt="Kiro"
+                className={cn('h-7 w-auto shrink-0', darkMode && 'invert brightness-0')}
+              />
+              <span className="font-semibold text-foreground whitespace-nowrap text-sm">
+                {isEn ? 'Account Manager' : '账户管理器'}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Menu Items */}
-      <nav className="flex-1 py-4 px-2 space-y-1">
+      <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
         {menuItemsConfig.map((item) => {
           const Icon = item.icon
           const isActive = currentPage === item.id
@@ -70,42 +88,76 @@ export function Sidebar({ currentPage, onPageChange, collapsed, onToggleCollapse
               key={item.id}
               onClick={() => onPageChange(item.id)}
               className={cn(
-                "w-full flex items-center rounded-lg text-sm font-medium transition-all overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                isActive 
-                  ? "bg-primary text-primary-foreground shadow-sm" 
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted",
-                collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5"
+                'group relative w-full flex items-center rounded-xl text-sm font-medium transition-all overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                isActive
+                  ? 'text-primary-foreground shadow-[0_4px_16px_rgba(91,140,255,0.35)]'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-white/40 dark:hover:bg-white/5',
+                collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2.5'
               )}
               title={collapsed ? label : undefined}
             >
-              <Icon className="h-5 w-5 shrink-0" />
-              {!collapsed && (
-                <span className="whitespace-nowrap">
-                  {label}
-                </span>
+              {/* 激活态：渐变背景（主题色随动） */}
+              {isActive && (
+                <motion.span
+                  layoutId="sidebar-active-pill"
+                  className="absolute inset-0 rounded-xl"
+                  style={{
+                    background: 'linear-gradient(135deg, var(--gradient-from), var(--gradient-to))'
+                  }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                />
               )}
+              <Icon className={cn('h-5 w-5 shrink-0 relative z-10', isActive ? 'text-white' : '')} />
+              <AnimatePresence initial={false}>
+                {!collapsed && (
+                  <motion.span
+                    key="label"
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -8 }}
+                    transition={{ duration: 0.15 }}
+                    className={cn('whitespace-nowrap relative z-10', isActive && 'text-white')}
+                  >
+                    {label}
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </button>
           )
         })}
       </nav>
 
       {/* Collapse Toggle */}
-      <div className="p-2 border-t">
+      <div className="p-2 border-t border-white/10 dark:border-white/5">
         <button
           onClick={onToggleCollapse}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          title={collapsed ? (t('common.unknown') === 'Unknown' ? 'Expand' : '展开侧边栏') : (t('common.unknown') === 'Unknown' ? 'Collapse' : '收起侧边栏')}
+          className="group w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-primary hover:bg-white/40 dark:hover:bg-white/5 transition-all overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+          title={collapsed ? (isEn ? 'Expand' : '展开侧边栏') : (isEn ? 'Collapse' : '收起侧边栏')}
         >
-          {collapsed ? (
+          <motion.div
+            animate={{ rotate: collapsed ? 0 : 180 }}
+            transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+            className="shrink-0"
+          >
             <ChevronRight className="h-4 w-4" />
-          ) : (
-            <>
-              <ChevronLeft className="h-4 w-4 shrink-0" />
-              <span className="whitespace-nowrap">{t('common.unknown') === 'Unknown' ? 'Collapse' : '收起'}</span>
-            </>
-          )}
+          </motion.div>
+          <AnimatePresence initial={false}>
+            {!collapsed && (
+              <motion.span
+                key="collapse-label"
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 'auto' }}
+                exit={{ opacity: 0, width: 0 }}
+                transition={{ duration: 0.15 }}
+                className="whitespace-nowrap overflow-hidden"
+              >
+                {isEn ? 'Collapse' : '收起'}
+              </motion.span>
+            )}
+          </AnimatePresence>
         </button>
       </div>
-    </div>
+    </motion.aside>
   )
 }
+

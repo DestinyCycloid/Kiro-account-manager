@@ -137,9 +137,9 @@ export function AccountDetailDialog({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={() => onOpenChange(false)} />
+      <div className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl" onClick={() => onOpenChange(false)} />
 
-      <div className="relative bg-background rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4 animate-in zoom-in-95 duration-200 border">
+      <div className="relative glass-card-strong rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4 animate-in zoom-in-95 duration-200">
         {/* 头部 */}
         <div className="sticky top-0 bg-background/95 backdrop-blur z-20 border-b p-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -160,7 +160,7 @@ export function AccountDetailDialog({
               </div>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="rounded-full hover:bg-muted">
+          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="rounded-full hover:bg-red-500 hover:text-white transition-colors">
             <X className="h-5 w-5" />
           </Button>
         </div>
@@ -443,3 +443,5 @@ export function AccountDetailDialog({
     document.body
   )
 }
+
+

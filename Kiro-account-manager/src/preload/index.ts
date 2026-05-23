@@ -663,6 +663,11 @@ const api = {
     return ipcRenderer.invoke('proxy-reset-pool')
   },
 
+  // 手动解除账号封禁标记
+  proxyClearAccountSuspended: (accountId: string): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke('proxy-clear-account-suspended', accountId)
+  },
+
   // 刷新模型缓存
   proxyRefreshModels: (): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke('proxy-refresh-models')
@@ -753,6 +758,17 @@ const api = {
     ipcRenderer.on('proxy-status-change', handler)
     return () => {
       ipcRenderer.removeListener('proxy-status-change', handler)
+    }
+  },
+
+  // 监听反代账号被封禁事件（TEMPORARILY_SUSPENDED / AccountSuspendedException）
+  onProxyAccountSuspended: (callback: (info: { id: string; email?: string; reason: string; message: string; suspendedAt: number }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { id: string; email?: string; reason: string; message: string; suspendedAt: number }): void => {
+      callback(info)
+    }
+    ipcRenderer.on('proxy-account-suspended', handler)
+    return () => {
+      ipcRenderer.removeListener('proxy-account-suspended', handler)
     }
   },
 
@@ -939,6 +955,20 @@ const api = {
     ipcRenderer.on('kproxy-mitm', handler)
     return () => {
       ipcRenderer.removeListener('kproxy-mitm', handler)
+    }
+  },
+
+  // ============ 自定义 titlebar API ============
+  window: {
+    minimize: (): void => ipcRenderer.send('window-minimize'),
+    maximizeToggle: (): void => ipcRenderer.send('window-maximize-toggle'),
+    close: (): void => ipcRenderer.send('window-close'),
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window-is-maximized'),
+    getPlatform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke('window-get-platform'),
+    onMaximizeChange: (callback: (isMaximized: boolean) => void): (() => void) => {
+      const handler = (_event: any, isMaximized: boolean): void => callback(isMaximized)
+      ipcRenderer.on('window-maximize-changed', handler)
+      return () => ipcRenderer.removeListener('window-maximize-changed', handler)
     }
   },
 

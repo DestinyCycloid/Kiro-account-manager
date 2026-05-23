@@ -39,6 +39,9 @@ function isBannedAccountError(error?: string): boolean {
   const hasSuspendedSignal =
     lowerError.includes('accountsuspendedexception') ||
     lowerError.includes('account suspended') ||
+    lowerError.includes('temporarily_suspended') ||
+    lowerError.includes('temporarily suspended') ||
+    (lowerError.includes('user id is') && lowerError.includes('suspended')) ||
     lowerError.includes('账户已封禁') ||
     lowerError.includes('已封禁') ||
     /\b423\b/.test(lowerError)
@@ -1638,7 +1641,7 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
     const { theme, darkMode } = get()
     const root = document.documentElement
     
-    // 移除所有主题类（包含所有 21 个主题）
+    // 移除所有主题类（包含所有 32 个主题）
     root.classList.remove(
       'dark', 
       // 蓝色系
@@ -1650,7 +1653,13 @@ export const useAccountsStore = create<AccountsStore>()((set, get) => ({
       // 绿色系
       'theme-emerald', 'theme-green', 'theme-lime',
       // 中性色
-      'theme-slate', 'theme-zinc', 'theme-stone', 'theme-neutral'
+      'theme-slate', 'theme-zinc', 'theme-stone', 'theme-neutral',
+      // 奢华配色
+      'theme-gold', 'theme-navy', 'theme-wine', 'theme-champagne',
+      // 莫兰迪
+      'theme-dustyblue', 'theme-terracotta', 'theme-sage', 'theme-mauve',
+      // 自然深色
+      'theme-coral', 'theme-forest', 'theme-ocean'
     )
     
     // 应用深色模式

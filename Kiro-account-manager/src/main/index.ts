@@ -16,7 +16,7 @@ import {
   type KProxyConfig,
   type DeviceIdMapping
 } from './kproxy'
-import { fetchKiroModels, fetchSubscriptionToken, fetchAvailableSubscriptions, setUserPreference, setUseKProxyForApiInProxy, setLogStreamEvents, setPayloadSizeLimitKB } from './proxy/kiroApi'
+import { fetchKiroModels, fetchSubscriptionToken, fetchAvailableSubscriptions, setUserPreference, setUseKProxyForApiInProxy, setLogStreamEvents, setPayloadSizeLimitKB, setTokenBufferReserve } from './proxy/kiroApi'
 import { getSystemProxy } from './proxy/systemProxy'
 import { proxyLogStore, interceptConsole } from './proxy/logger'
 import { registerIPCHandlers as registerRegistrationHandlers } from './registration/ipc-handlers'
@@ -290,6 +290,10 @@ function initProxyServer(): ProxyServer {
   if (config.payloadSizeLimitKB) {
     setPayloadSizeLimitKB(config.payloadSizeLimitKB)
   }
+  // 恢复 Token buffer reserve
+  if (config.tokenBufferReserve) {
+    setTokenBufferReserve(config.tokenBufferReserve)
+  }
 
   proxyServer = new ProxyServer(
     config,
@@ -340,6 +344,37 @@ function initProxyServer(): ProxyServer {
           refreshToken: account.refreshToken,
           expiresAt: account.expiresAt
         })
+      },
+      // 账号被 Kiro 后端长期封禁 - 通知渲染进程标记 lastError + 持久化到 store
+      // 不同于 token 失效，需要人工解封；账号池已自动跳过该账号
+      onAccountSuspended: (info) => {
+        console.warn(`[ProxyServer] Account suspended: ${info.email || info.accountId} (${info.reason})`)
+        // 推送 IPC 事件给前端 store
+        mainWindow?.webContents.send('proxy-account-suspended', {
+          id: info.accountId,
+          email: info.email,
+          reason: info.reason,
+          message: info.message,
+          suspendedAt: Date.now()
+        })
+        // 同步写入 store accountData[id].lastError, 保证下次启动时 UI 仍然能看到封禁状态
+        if (store) {
+          try {
+            const accountData = store.get('accountData') as { accounts?: Record<string, Record<string, unknown>> } | undefined
+            if (accountData?.accounts?.[info.accountId]) {
+              accountData.accounts[info.accountId] = {
+                ...accountData.accounts[info.accountId],
+                status: 'error',
+                lastError: `[${info.reason}] ${info.message}`,
+                lastCheckedAt: Date.now()
+              }
+              store.set('accountData', accountData)
+              lastSavedData = accountData
+            }
+          } catch (e) {
+            console.error('[ProxyServer] Failed to persist suspended state:', e)
+          }
+        }
       },
       // Credits 更新回调 - 使用防抖持久化
       onCreditsUpdate: (totalCredits) => {
@@ -1472,6 +1507,7 @@ function initTray(): void {
 
 function createWindow(): void {
   // Create the browser window.
+  const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     title: `Kiro 账号管理器 v${app.getVersion()}`,
     width: 1200,   // 刚好容纳 3 列卡片 (340*3 + 16*2 + 边距)
@@ -1481,6 +1517,11 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     icon,
+    // 自定义 titlebar：mac 保留红绿黄灯 + 隐藏标题栏；win/linux 完全无 frame
+    frame: isMac,
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    trafficLightPosition: isMac ? { x: 14, y: 12 } : undefined,
+    // 不透明窗口（关闭透明 + Mica/Vibrancy 避免桌面元素干扰）
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -1488,6 +1529,10 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+
+  // ============ 自定义 titlebar IPC ============
+  mainWindow.on('maximize', () => mainWindow?.webContents.send('window-maximize-changed', true))
+  mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window-maximize-changed', false))
 
   mainWindow.on('ready-to-show', () => {
     // 设置带版本号的标题（HTML 加载后会覆盖初始标题）
@@ -1761,6 +1806,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-tray-settings', () => {
     return traySettings
   })
+
+  // ============ 自定义 titlebar IPC ============
+  ipcMain.on('window-minimize', () => mainWindow?.minimize())
+  ipcMain.on('window-maximize-toggle', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+  })
+  ipcMain.on('window-close', () => mainWindow?.close())
+  ipcMain.handle('window-is-maximized', () => !!mainWindow?.isMaximized())
+  ipcMain.handle('window-get-platform', () => process.platform)
 
   // IPC: 获取显示主窗口快捷键
   ipcMain.handle('get-show-window-shortcut', () => {
@@ -4933,6 +4989,10 @@ app.whenReady().then(async () => {
       if (config.payloadSizeLimitKB !== undefined) {
         setPayloadSizeLimitKB(config.payloadSizeLimitKB)
       }
+      // 同步 Token buffer reserve
+      if (config.tokenBufferReserve !== undefined) {
+        setTokenBufferReserve(config.tokenBufferReserve)
+      }
       // 保存配置到 store（用于自启动）
       if (store) {
         store.set('proxyConfig', newConfig)
@@ -5333,6 +5393,37 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.error('[ProxyServer] Reset pool failed:', error)
       return { success: false, error: error instanceof Error ? error.message : 'Failed to reset pool' }
+    }
+  })
+
+  // IPC: 手动解除账号封禁标记（用户确认账号已恢复后调用）
+  // 1) 清除反代池中的 suspended 状态
+  // 2) 同步清除 store.accountData[id].lastError，状态回到 active
+  ipcMain.handle('proxy-clear-account-suspended', (_event, accountId: string) => {
+    try {
+      if (proxyServer) {
+        proxyServer.getAccountPool().clearSuspended(accountId)
+      }
+      // 持久化清除 lastError
+      if (store) {
+        const accountData = store.get('accountData') as { accounts?: Record<string, Record<string, unknown>> } | undefined
+        if (accountData?.accounts?.[accountId]) {
+          const acc = accountData.accounts[accountId]
+          accountData.accounts[accountId] = {
+            ...acc,
+            status: 'active',
+            lastError: undefined,
+            lastCheckedAt: Date.now()
+          }
+          store.set('accountData', accountData)
+          lastSavedData = accountData
+        }
+      }
+      console.log(`[ProxyServer] Cleared suspended flag for account ${accountId}`)
+      return { success: true }
+    } catch (error) {
+      console.error('[ProxyServer] Clear suspended failed:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to clear suspended' }
     }
   })
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { AccountManager } from './components/accounts'
-import { Sidebar, type PageType } from './components/layout'
+import { Sidebar, TitleBar, type PageType } from './components/layout'
 import { HomePage, AboutPage, SettingsPage, MachineIdPage, KiroSettingsPage, ProxyPage, KProxyPage, RegisterPage, SubscriptionPage, LogsPage } from './components/pages'
 import { UpdateDialog } from './components/UpdateDialog'
 import { CloseConfirmDialog } from './components/CloseConfirmDialog'
@@ -19,7 +20,8 @@ function App(): React.JSX.Element {
     accounts,
     activeAccountId,
     setActiveAccount,
-    checkAndRefreshExpiringTokens
+    checkAndRefreshExpiringTokens,
+    updateAccountStatus
   } = useAccountsStore()
 
   // 切换到下一个可用账户
@@ -126,6 +128,18 @@ function App(): React.JSX.Element {
     }
   }, [handleBackgroundCheckResult])
 
+  // 监听反代账号被封禁事件（TEMPORARILY_SUSPENDED / AccountSuspendedException）
+  // 反代触发后，把封禁状态同步到 store 让 UI 显示
+  useEffect(() => {
+    const unsubscribe = window.api.onProxyAccountSuspended((info) => {
+      console.warn(`[App] Account suspended via proxy: ${info.email || info.id} (${info.reason})`)
+      updateAccountStatus(info.id, 'error', `[${info.reason}] ${info.message}`)
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [updateAccountStatus])
+
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
@@ -156,16 +170,30 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div className="h-screen bg-background flex">
-      <Sidebar
-        currentPage={currentPage}
-        onPageChange={setCurrentPage}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-      />
-      <main className="flex-1 overflow-auto">
-        {renderPage()}
-      </main>
+    <div className="h-screen ambient-bg overflow-hidden flex flex-col">
+      <TitleBar />
+      <div className="flex-1 min-h-0 flex gap-2 p-2">
+        <Sidebar
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        />
+        <main className="flex-1 min-w-0 overflow-hidden rounded-3xl page-surface">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentPage}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+              className="h-full flex flex-col"
+            >
+              {renderPage()}
+            </motion.div>
+          </AnimatePresence>
+        </main>
+      </div>
       <UpdateDialog />
       <CloseConfirmDialog />
     </div>

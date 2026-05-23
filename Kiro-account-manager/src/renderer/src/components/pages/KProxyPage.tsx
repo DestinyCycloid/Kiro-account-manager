@@ -8,7 +8,7 @@ export function KProxyPage() {
 
   return (
     <div className="flex-1 p-6 space-y-6 overflow-auto">
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-purple-500/10 via-purple-500/5 to-purple-500/10 p-6 border border-purple-500/20">
+      <div className="page-hero p-6">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-purple-500/20 to-transparent rounded-full blur-2xl" />
         <div className="relative flex items-center gap-4">

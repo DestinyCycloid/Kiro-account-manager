@@ -171,7 +171,7 @@ export function ExportDialog({ open, onClose, accounts, selectedCount }: ExportD
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* 背景遮罩 */}
       <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl"
         onClick={onClose}
       />
       
@@ -189,7 +189,7 @@ export function ExportDialog({ open, onClose, accounts, selectedCount }: ExportD
           <Button 
             variant="ghost" 
             size="sm" 
-            className="h-8 w-8 p-0"
+            className="h-8 w-8 p-0 rounded-lg hover:bg-red-500 hover:text-white transition-colors"
             onClick={onClose}
           >
             <X className="h-4 w-4" />
@@ -303,3 +303,5 @@ export function ExportDialog({ open, onClose, accounts, selectedCount }: ExportD
     document.body
   )
 }
+
+

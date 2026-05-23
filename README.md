@@ -272,6 +272,87 @@ The project is configured with GitHub Actions workflow for auto building all pla
 ## 📋 Changelog
 
 
+### v1.6.7 (2026-5-23)
+
+#### Account Suspension Handling (NEW)
+- **New**: Full TEMPORARILY_SUSPENDED detection pipeline — proxy server now recognizes Kiro backend risk-control errors (`403 + reason:"TEMPORARILY_SUSPENDED"`), `AccountSuspendedException` (CodeWhisperer), and `423 Locked` responses
+- **New**: `ProxyAccount` gains `suspendedAt` / `suspendReason` / `suspendMessage` fields to track long-term bans (distinct from temporary `errorCount` cooldown)
+- **New**: `AccountPool` adds `isSuspended` / `markSuspended` / `clearSuspended` — suspended accounts are permanently skipped in `isAccountAvailable` until manually cleared or `reset()`
+- **New**: `onAccountSuspended` event + IPC `proxy-account-suspended` — full bridge from proxy server → main → preload → renderer store → UI
+- **New**: Suspension state persisted to `store.accountData[id].lastError` and `status='error'` — survives app restart
+- **New**: Auto-switch to next available account when current is suspended (works in both multi-account and single-account+auto-switch modes)
+- **Improved**: Unified `isBannedAccountError` across `store/accounts.ts` / `AccountSelectDialog` / `AccountCard` — all three now recognize `temporarily_suspended` / `temporarily suspended` / `User ID is suspended` patterns and display the ban banner
+- **New**: Manual unsuspend UI — `AccountCard` ban-detail dialog now has a `Reset Suspended` button that calls IPC `proxy-clear-account-suspended` → clears `accountPool` suspended flag + wipes `store.accountData[id].lastError` + sets `status='active'`
+- **Fixed**: `accountPool.addAccount` previously always forced `isAvailable=true`, which would silently wipe out the suspended state if an account was re-added (e.g., after `proxy-sync-accounts`). Now `addAccount` respects the incoming `suspendedAt` field and preserves `isAvailable=false`, so suspended accounts re-added from persisted data stay correctly skipped.
+
+#### LAN Access Fix (Issue #75)
+- **Fixed**: 🔥 **Cannot access proxy via LAN after upgrading from 1.5.0 to 1.6.x** — root cause: default `host` was `127.0.0.1` (loopback only) and the UI "Public" toggle was `disabled` while the server was running, so users couldn't switch without stopping the service
+- **Fixed**: "Public" switch in Proxy Panel is now clickable even while the server is running — toggling automatically stops + starts the proxy to apply the new host binding within ~300ms
+- **Improved**: Service address now displays `http://localhost:5580` instead of `http://0.0.0.0:5580` (the latter is not a valid client target); copy-address button uses the same human-readable form
+- **Improved**: Inline hints below the host field — loopback mode tells users how to enable LAN access; public mode warns to set an API Key and allow the port through the firewall
+- **Improved**: When public mode is active, a secondary tip below the service address shows `LAN devices use http://<this-machine-IP>:<port>`
+
+#### UI Improvements
+- **New**: 🎨 **Premium SaaS Glassmorphism Redesign** — full design system overhaul inspired by Linear / Raycast / Vercel:
+  - **Design tokens**: background `#f4f7fb`, primary `#5B8CFF`, violet accent `#8B5CF6`, success `#22C55E`, translucent white borders `rgba(255,255,255,0.4)`
+  - **Frosted glass system**: new `.glass-card` / `.glass-card-strong` / `.glass-card-subtle` / `.glass-sidebar` / `.glass-toolbar` utility classes with `backdrop-filter: blur(24px) saturate(180%)`
+  - **Floating sidebar**: Sidebar now floats with `rounded-3xl` (24px), glass backdrop, framer-motion spring width animation, layoutId-based active pill morph (primary → violet gradient)
+  - **Ambient light background**: dual radial gradients (blue + violet) animated with 22s/26s float keyframes — soft 80px blur, auto-dimmed in dark mode
+  - **Card defaults**: `<Card>` now defaults to glass variant with `rounded-2xl` (24px), supports `variant=glass/glass-strong/glass-subtle/solid/elevated` and `interactive` prop for hover-lift animation (translateY -2px + enhanced shadow)
+  - **Page hero unification**: all 8 pages (Home / Accounts / Settings / Proxy / KProxy / KiroSettings / Subscription / Register / About / MachineId) now use `.page-hero` class with consistent 24px rounded glass header
+  - **Transparent toolbars**: AccountManager header uses `glass-toolbar` (16px blur + subtle bg + border-bottom only)
+  - **Page transitions**: `AnimatePresence` + `motion.div` wraps page content with fade + 8px Y-axis spring transition on route change
+  - **Dark mode**: deep navy `#0a0e1a` background with glass surfaces tuned for low-light readability
+  - **Dependencies**: added `framer-motion ^11.x` for declarative animations
+- **Fixed (Glassmorphism polish)**: page scroll regression — `motion.div` wrapper now uses `h-full flex flex-col` so child page's `flex-1 overflow-auto` works correctly
+- **Improved (Glassmorphism polish)**:
+  - All 33 instances of `<Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">` across `HomePage` / `SettingsPage` / `AboutPage` / `RegisterPage` / `KiroSettingsPage` / `ProxyPanel` replaced with `hover-lift` — default glass variant now fully visible
+  - 4 hand-rolled Dialog containers (`UpdateDialog` / `CloseConfirmDialog` / `AccountDetailDialog` / `ProxyDetailedLogsDialog`) switched from `bg-background rounded-xl border` to `glass-card-strong rounded-2xl` + backdrop-blur overlay
+  - `Button` component reworked: `rounded-xl` default, `transition-all 200ms`, hover `-translate-y-px` + ring-color glow on `default`/`destructive` variants, new `gradient` variant (theme-aware `gradient-bg-primary` + `breathe-glow` animation), new `cta` size (h-12 rounded-2xl) for primary call-to-actions
+  - **All 21 themes now have theme-aware active-pill gradient** — each theme defines `--gradient-from` / `--gradient-to` pair (purple/emerald/orange/rose/cyan/amber/teal/indigo/lime/pink/slate/zinc/sky/violet/fuchsia/red/yellow/green/stone/neutral + default). Sidebar's `motion.span layoutId="sidebar-active-pill"` reads from CSS vars, so the active menu pill morphs through the selected theme's hue gradient (e.g., emerald theme → teal-green gradient instead of fixed blue→violet)
+  - `gradient-bg-primary` and `gradient-border` utility classes now use `var(--gradient-from/-to)` so all gradient buttons/borders follow theme selection automatically
+- **Improved (Glass refinement)**:
+  - **Glass shadow upgrade**: 4-layer composite shadow — top hairline highlight (inset 1px white), micro outer stroke (1px slate-900 @ 4%), far ambient (0 8px 32px @ 12%), near contact (0 2px 6px @ 5%) — gives cards real "frosted acrylic" presence on light backgrounds where pure translucency was invisible
+  - **Page surface ambient**: `main` container now has `.page-surface` (dual blue/violet radial blobs @ 18% / 14% opacity, 60px blur) so glass cards have actual color to refract through — previously cards looked solid white on solid white background
+  - **AccountCard refactor**: removed stray `border` + `hover:shadow-lg` overrides that were stomping the glass system; now uses `hover-lift` utility (translateY -2px + enhanced shadow) on non-active/non-banned cards; active glow border and banned red border preserved
+  - **AccountToolbar inputs**: search box and view-mode toggle now use `bg-[var(--glass-bg-subtle)] backdrop-blur-md` with rounded-xl + larger focus ring; filter panel number inputs (`AccountFilter`) same treatment
+- **New**: Accounts page now supports **List view** in addition to the existing card grid — toolbar gains a Grid/List toggle, persists to `localStorage('accounts_viewMode')`. Compact list rows show inline email + status + subscription + tags + credit progress + key actions, with ~5x density vs cards (good for managing 100+ accounts)
+- **Fixed**: System Logs page `displayLimit` default changed from `All` to `5K` and now persists to `localStorage('systemLogs_displayLimit')` — previously the value reset to `All` on every page navigation/app restart, hurting initial render performance with large log volumes
+
+#### Token-Based History Trimming
+- **New**: `tokenBufferReserve` setting (replaces previous `maxInputTokensThreshold`) — adaptive history trimming based on the actual model's `contextWindow` returned by `ListAvailableModels`
+- **Changed**: Effective trim threshold computed as `model.maxInputTokens - tokenBufferReserve` per request — default `50000` reserve fits all models (200K models → 150K cutoff, 1M models → 950K cutoff)
+- **New**: Reserve accounts for `system` + `tools` + current message + output budget + estimation skew, preventing `CONTENT_LENGTH_EXCEEDS_THRESHOLD` on long conversations regardless of byte-based payload size
+- **New**: Model context cache synced from `fetchKiroModels` into the trimming logic so newly added Kiro models pick up correct limits automatically
+
+#### Dialog Glassmorphism Refactor
+- **Refactored**: 17 dialogs unified under `.glass-card-strong` — rewritten as 90% translucent white (`rgba(255,255,255,0.90)` / dark `rgba(20,25,40,0.90)`) + `backdrop-filter: blur(20px) saturate(160%)` real frosted glass + 3-layer composite deep shadow (1px outer border + 0 24px 64px far shadow + 0 8px 24px near contact shadow) for strong elevation
+- **Unified**: dialog overlays standardized from `bg-black/40 backdrop-blur-sm` / `bg-black/50` to `bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl` — light-mode 12% slate ultra-faint mask + heavy blur (24px) so background blurs without graying out the dialog sample
+- **Unified**: all dialog close buttons (×) now use red hover — `hover:bg-red-500 hover:text-white transition-colors`, covering `AccountDetailDialog` / `EditAccountDialog` / `AddAccountDialog` / `TagManageDialog` / `GroupManageDialog` / `ExportDialog` / `AccountCard` ban+subscription / `ApiKeyUsageDialog` / `AccountSelectDialog` / `UpdateDialog` (15+ dialogs total), matching TitleBar close button for consistent danger semantics
+- **Improved**: `--glass-bg-strong` token changed from opaque white to 90% translucent + `backdrop-filter` now actually applies, so dialogs are no longer flat opaque cards but true glass panels
+
+#### Theme Base Color & Ambient Light Overhaul
+- **Design**: Light-mode background `#f4f7fb` → `#EEF2F8` icy blue (inspired by F1 Fresh Blue), reducing the dead-white "AI palette" feel
+- **Design**: Dark-mode background `#0a0e1a` → `#0B1220` deep navy (inspired by E1 Deep Space), shifted from neutral gray-black to blue tone
+- **New**: 3-stop body gradient — light mode `#E5EBF5` → `#EEF2F8` → `#F2F5FA` simulating daylight transition; dark mode `#0F1729` → `#0B1220` → `#060A14` for night-sky depth
+- **New**: body gradient top/bottom tinted via `color-mix(in srgb, var(--gradient-from) 10%, ...)` — **switching themes now changes the entire ambient background** (previously themes only affected buttons, not background atmosphere)
+- **Improved**: Ambient blobs changed from hardcoded `rgba(91,140,255,0.55)` blue/purple to `color-mix(var(--gradient-from) 38%, transparent)` — breathing glow follows the active theme hue, so blue/purple/green/orange/gold themes each have a distinct atmospheric tone
+- **Improved**: Titlebar light-mode glass updated from `rgba(255,255,255,0.75)→rgba(244,247,251,0.65)` to `rgba(255,255,255,0.78)→rgba(229,235,245,0.65)`; dark-mode from neutral dark-gray to deep navy `rgba(22,30,48,0.85)→rgba(11,18,32,0.75)`
+- **Fixed**: App root `<div>` had `bg-background` opaque class overriding the body gradient — now removed so the gradient is actually visible
+
+#### Theme Expansion — 11 Premium Themes Added (32 Total)
+- **New**: "Luxury" group (4) — `gold` `#C9A227` / `navy` `#1E40AF` / `wine` `#9F1239` / `champagne` `#B89968`, suited for finance, business, and luxury-brand contexts
+- **New**: "Morandi" group (4) — `dustyblue` `#64748B` / `terracotta` `#B45434` / `sage` `#6B8E5A` / `mauve` `#8E7CC3`, low-saturation premium grays for long-session eye comfort
+- **New**: "Natural" group (3) — `coral` `#F87171` / `forest` `#166534` / `ocean` `#155E75`, calm natural tones
+- **Improved**: Each new theme has matched dark-mode values (e.g., `forest` light `#166534` / dark `#4ADE80`) for WCAG contrast
+- **Synced**: `accounts.ts` theme-removal list includes the 11 new classes; `zh.ts` / `en.ts` / `AboutPage.tsx` updated from "21 themes" to "32 themes"
+
+#### Usage Stats Progress Bar Enhancement
+- **New**: Live percentage pill at progress bar top-right — color-graded by usage: < 50% green, 50-80% yellow, 80-100% orange, > 100% red
+- **New**: Over-quota dual-segment progress bar — base segment (0-100% filled, color-graded) + red striped overflow overlay on the right (`animate-pulse` + 45° `repeating-linear-gradient`), overflow visual width proportional to excess ratio (capped at 60% so base color remains visible)
+- **New**: Red warning banner appears below progress bar when over quota — shows "⚠️ Over Quota +X.XX%" + "Excess: Y credits" inside `bg-red-500/10` + `border-red-500/30` highlight area
+- **Improved**: Both percentage and over-quota ratio respect the `usagePrecision` setting (2 decimals when enabled, 1 when off)
+
 ### v1.6.6 (2026-5-17)
 
 #### E2E Test Suite

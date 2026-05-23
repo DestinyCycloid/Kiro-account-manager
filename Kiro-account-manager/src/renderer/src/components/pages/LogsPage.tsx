@@ -52,7 +52,10 @@ export function LogsPage() {
   const [levelFilter, setLevelFilter] = useState<LogLevel>('ALL')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [timeRange, setTimeRange] = useState('all')
-  const [displayLimit, setDisplayLimit] = useState('all')
+  // 显示数量默认 5K，用户改动后持久化到 localStorage（页面切换/重启后保留）
+  const [displayLimit, setDisplayLimit] = useState<string>(() => {
+    return localStorage.getItem('systemLogs_displayLimit') || '5000'
+  })
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
@@ -89,6 +92,11 @@ export function LogsPage() {
       if (pollRef.current) clearInterval(pollRef.current)
     }
   }, [fetchLogs])
+
+  // 持久化 displayLimit
+  useEffect(() => {
+    localStorage.setItem('systemLogs_displayLimit', displayLimit)
+  }, [displayLimit])
 
   // 智能滚动：用户在底部时自动跟随
   useEffect(() => {

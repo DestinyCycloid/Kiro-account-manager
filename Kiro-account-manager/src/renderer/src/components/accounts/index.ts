@@ -1,5 +1,7 @@
 export { AccountCard } from './AccountCard'
 export { AccountGrid } from './AccountGrid'
+export { AccountList } from './AccountList'
+export { AccountListRow } from './AccountListRow'
 export { AccountFilterPanel } from './AccountFilter'
 export { AccountToolbar } from './AccountToolbar'
 export { AddAccountDialog } from './AddAccountDialog'

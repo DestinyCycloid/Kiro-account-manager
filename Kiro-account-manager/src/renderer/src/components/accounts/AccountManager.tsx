@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAccountsStore } from '@/store/accounts'
 import { useTranslation } from '@/hooks/useTranslation'
-import { AccountToolbar } from './AccountToolbar'
+import { AccountToolbar, type AccountViewMode } from './AccountToolbar'
 import { AccountGrid } from './AccountGrid'
+import { AccountList } from './AccountList'
 import { AddAccountDialog } from './AddAccountDialog'
 import { EditAccountDialog } from './EditAccountDialog'
 import { GroupManageDialog } from './GroupManageDialog'
@@ -31,6 +32,14 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
   const [showTagDialog, setShowTagDialog] = useState(false)
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [isFilterExpanded, setIsFilterExpanded] = useState(false)
+  // 视图模式：grid（卡片，默认）/ list（紧凑列表），持久化到 localStorage
+  const [viewMode, setViewMode] = useState<AccountViewMode>(() => {
+    const saved = localStorage.getItem('accounts_viewMode')
+    return saved === 'list' ? 'list' : 'grid'
+  })
+  useEffect(() => {
+    localStorage.setItem('accounts_viewMode', viewMode)
+  }, [viewMode])
   const { t } = useTranslation()
   const isEn = t('common.unknown') === 'Unknown'
 
@@ -217,8 +226,8 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
 
   return (
     <div className="flex flex-col h-full">
-      {/* 顶部工具栏 */}
-      <header className="flex items-center justify-between gap-4 px-6 py-4 border-b bg-gradient-to-r from-primary/5 to-transparent">
+      {/* 顶部工具栏 - 玻璃态 */}
+      <header className="flex items-center justify-between gap-4 px-3 py-3 glass-toolbar">
         <div className="flex items-center gap-4">
           {onBack && (
             <Button variant="ghost" size="icon" onClick={onBack}>
@@ -238,6 +247,8 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
           onAddAccount={() => setShowAddDialog(true)}
           onImport={handleImport}
           onExport={handleExport}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
           onManageGroups={handleManageGroups}
           onManageTags={handleManageTags}
           isFilterExpanded={isFilterExpanded}
@@ -246,13 +257,20 @@ export function AccountManager({ onBack }: AccountManagerProps): React.ReactNode
       </header>
 
       {/* 主内容区域 */}
-      <div className="flex-1 overflow-hidden flex flex-col px-6 py-4 gap-4">
-        {/* 账号网格 */}
+      <div className="flex-1 overflow-hidden flex flex-col px-3 py-3 gap-3">
+        {/* 账号列表（卡片 或 紧凑列表） */}
         <div className="flex-1 overflow-hidden">
-          <AccountGrid
-            onAddAccount={() => setShowAddDialog(true)}
-            onEditAccount={handleEditAccount}
-          />
+          {viewMode === 'grid' ? (
+            <AccountGrid
+              onAddAccount={() => setShowAddDialog(true)}
+              onEditAccount={handleEditAccount}
+            />
+          ) : (
+            <AccountList
+              onAddAccount={() => setShowAddDialog(true)}
+              onEditAccount={handleEditAccount}
+            />
+          )}
         </div>
       </div>
 

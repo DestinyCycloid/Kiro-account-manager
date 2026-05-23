@@ -23,17 +23,17 @@ export function Toggle({ checked, onChange, disabled = false, size = 'md' }: Tog
       disabled={disabled}
       onClick={() => !disabled && onChange(!checked)}
       className={cn(
-        'relative inline-flex shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+        'relative inline-flex shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2',
         s.track,
-        checked 
-          ? 'bg-primary' 
-          : 'bg-muted',
+        checked
+          ? 'bg-[linear-gradient(135deg,var(--gradient-from),var(--gradient-to))] shadow-[0_2px_8px_rgba(91,140,255,0.35)]'
+          : 'bg-foreground/20 dark:bg-foreground/15 shadow-inner',
         disabled && 'opacity-50 cursor-not-allowed'
       )}
     >
       <span
         className={cn(
-          'pointer-events-none inline-block rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out',
+          'pointer-events-none inline-block rounded-full bg-white shadow-md ring-1 ring-black/5 transition-transform duration-200 ease-in-out',
           s.thumb,
           checked ? s.translate : 'translate-x-0'
         )}

@@ -210,14 +210,14 @@ export function EditAccountDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
+      <div className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl" onClick={() => onOpenChange(false)} />
 
       <Card className="relative w-full max-w-lg max-h-[90vh] overflow-auto z-10 animate-in zoom-in-95 duration-200">
         {/* 头部 */}
         <CardHeader className="pb-4 border-b sticky top-0 bg-background z-20">
           <div className="flex items-center justify-between">
             <CardTitle className="text-xl font-bold">{isEn ? 'Edit Account' : '编辑账号'}</CardTitle>
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={() => onOpenChange(false)}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-red-500 hover:text-white transition-colors" onClick={() => onOpenChange(false)}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -422,3 +422,5 @@ export function EditAccountDialog({
     </div>
   )
 }
+
+

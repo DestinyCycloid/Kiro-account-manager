@@ -93,7 +93,7 @@ export function HomePage() {
   return (
     <div className="flex-1 p-6 space-y-6 overflow-auto">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10 p-6 border border-primary/20">
+      <div className="page-hero p-6">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="relative flex items-center gap-4">
@@ -114,7 +114,7 @@ export function HomePage() {
         {statCards.map((stat) => {
           const Icon = stat.icon
           return (
-            <Card key={stat.label} className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <Card key={stat.label} className="hover-lift">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <div className={`p-2.5 rounded-xl ${stat.bgColor}`}>
@@ -133,7 +133,7 @@ export function HomePage() {
 
       {/* Usage Stats */}
       {usageStats.validAccountCount > 0 && (
-        <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+        <Card className="hover-lift">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -176,31 +176,88 @@ export function HomePage() {
                 <p className="text-xl font-bold">{usageStats.percentUsed.toFixed(usagePrecision ? 2 : 1)}%</p>
               </div>
             </div>
-            {/* 进度条 */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{isEn ? 'Overall Progress' : '总体使用进度'}</span>
-                <span>{usageStats.totalUsed.toLocaleString()} / {usageStats.totalLimit.toLocaleString()}</span>
-              </div>
-              <div className="h-3 bg-muted rounded-full overflow-hidden">
-                <div 
-                  className={cn(
-                    "h-full rounded-full transition-all",
-                    usageStats.percentUsed < 50 && "bg-green-500",
-                    usageStats.percentUsed >= 50 && usageStats.percentUsed < 80 && "bg-yellow-500",
-                    usageStats.percentUsed >= 80 && "bg-red-500"
+            {/* 进度条 - 超额时双段显示 */}
+            {(() => {
+              const isOverQuota = usageStats.percentUsed > 100
+              const overPercent = isOverQuota ? usageStats.percentUsed - 100 : 0
+              const overAmount = isOverQuota ? Math.abs(usageStats.remaining) : 0
+              // 超额段视觉宽度：按超额比例占整条进度条比例，最多 60% 避免完全遮盖
+              const overBarWidth = isOverQuota ? Math.min((overPercent / usageStats.percentUsed) * 100, 60) : 0
+              const precision = usagePrecision ? 2 : 1
+
+              return (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-muted-foreground">{isEn ? 'Overall Progress' : '总体使用进度'}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-muted-foreground">
+                        {usageStats.totalUsed.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {usageStats.totalLimit.toLocaleString()}
+                      </span>
+                      <span className={cn(
+                        "font-bold px-2 py-0.5 rounded-md",
+                        isOverQuota && "bg-red-500/15 text-red-600 dark:text-red-400",
+                        !isOverQuota && usageStats.percentUsed >= 80 && "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+                        !isOverQuota && usageStats.percentUsed >= 50 && usageStats.percentUsed < 80 && "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
+                        !isOverQuota && usageStats.percentUsed < 50 && "bg-green-500/15 text-green-600 dark:text-green-400"
+                      )}>
+                        {usageStats.percentUsed.toFixed(precision)}%
+                      </span>
+                    </span>
+                  </div>
+                  <div className="relative h-3 bg-muted rounded-full overflow-hidden">
+                    {/* 基础进度段 */}
+                    <div 
+                      className={cn(
+                        "absolute inset-y-0 left-0 transition-all",
+                        isOverQuota && "bg-red-500",
+                        !isOverQuota && usageStats.percentUsed >= 80 && "bg-orange-500",
+                        !isOverQuota && usageStats.percentUsed >= 50 && usageStats.percentUsed < 80 && "bg-yellow-500",
+                        !isOverQuota && usageStats.percentUsed < 50 && "bg-green-500"
+                      )}
+                      style={{ width: `${Math.min(usageStats.percentUsed, 100)}%` }}
+                    />
+                    {/* 超额段 - 深红条纹动画从右侧叠加 */}
+                    {isOverQuota && (
+                      <div 
+                        className="absolute inset-y-0 right-0 bg-gradient-to-r from-red-600 via-red-700 to-red-800 animate-pulse"
+                        style={{
+                          width: `${overBarWidth}%`,
+                          backgroundImage: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.15) 0, rgba(255,255,255,0.15) 8px, transparent 8px, transparent 16px)',
+                          backgroundSize: '22px 22px'
+                        }}
+                      />
+                    )}
+                  </div>
+                  {/* 超额警示横幅 */}
+                  {isOverQuota && (
+                    <div className="flex items-center justify-between gap-3 mt-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30">
+                      <div className="flex items-center gap-2 text-xs">
+                        <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                        <span className="font-bold text-red-600 dark:text-red-400">
+                          {isEn ? 'Over Quota' : '已超额'}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-600 dark:text-red-400 font-bold">
+                          +{overPercent.toFixed(precision)}%
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-muted-foreground">{isEn ? 'Excess: ' : '超额积分：'}</span>
+                        <span className="font-bold text-red-600 dark:text-red-400">
+                          {overAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
                   )}
-                  style={{ width: `${Math.min(usageStats.percentUsed, 100)}%` }}
-                />
-              </div>
-            </div>
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
       )}
 
       {/* Current Account */}
       {activeAccount && (
-        <Card className="border-0 shadow-sm bg-gradient-to-r from-primary/5 to-primary/10">
+        <Card className="hover-lift bg-gradient-to-r from-primary/5 to-primary/10">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Zap className="h-4 w-4 text-primary" />
@@ -409,7 +466,7 @@ export function HomePage() {
       )}
 
       {/* Quick Tips */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -442,7 +499,7 @@ export function HomePage() {
 
       {/* Feature Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+        <Card className="hover-lift">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -458,7 +515,7 @@ export function HomePage() {
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+        <Card className="hover-lift">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -474,7 +531,7 @@ export function HomePage() {
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+        <Card className="hover-lift">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-lg bg-primary/10">

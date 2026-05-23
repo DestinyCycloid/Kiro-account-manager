@@ -990,7 +990,7 @@ export function AddAccountDialog({ isOpen, onClose }: AddAccountDialogProps): Re
         <CardHeader className="pb-4 border-b">
           <div className="flex flex-row items-center justify-between">
             <CardTitle className="text-xl font-bold">{isEn ? 'Add Account' : '添加账号'}</CardTitle>
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={onClose}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-red-500 hover:text-white transition-colors" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>

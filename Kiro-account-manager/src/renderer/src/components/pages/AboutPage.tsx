@@ -72,7 +72,7 @@ export function AboutPage() {
   return (
     <div className="flex-1 p-6 space-y-6 overflow-auto">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10 p-8 border border-primary/20">
+      <div className="page-hero p-8">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="relative text-center space-y-4">
@@ -247,7 +247,7 @@ export function AboutPage() {
       )}
 
       {/* Description */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -271,7 +271,7 @@ export function AboutPage() {
       </Card>
 
       {/* Features */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -328,14 +328,14 @@ export function AboutPage() {
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary mt-0.5">✓</span>
-              <strong>{isEn ? 'Themes' : '主题定制'}</strong>{isEn ? ': 21 colors, dark/light mode' : '：21 种主题颜色，深色/浅色模式'}
+              <strong>{isEn ? 'Themes' : '主题定制'}</strong>{isEn ? ': 32 colors, dark/light mode' : '：32 种主题颜色，深色/浅色模式'}
             </li>
           </ul>
         </CardContent>
       </Card>
 
       {/* Tech Stack */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -359,7 +359,7 @@ export function AboutPage() {
       </Card>
 
       {/* Author */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -393,7 +393,7 @@ export function AboutPage() {
       </Card>
 
       {/* Sponsor */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">

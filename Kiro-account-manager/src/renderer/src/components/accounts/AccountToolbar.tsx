@@ -21,13 +21,19 @@ import {
   ChevronDown,
   Check,
   X,
-  Minus
+  Minus,
+  LayoutGrid,
+  List as ListIcon
 } from 'lucide-react'
+
+export type AccountViewMode = 'grid' | 'list'
 
 interface AccountToolbarProps {
   onAddAccount: () => void
   onImport: () => void
   onExport: () => void
+  viewMode: AccountViewMode
+  onViewModeChange: (mode: AccountViewMode) => void
   onManageGroups: () => void
   onManageTags: () => void
   isFilterExpanded: boolean
@@ -38,6 +44,8 @@ export function AccountToolbar({
   onAddAccount,
   onImport,
   onExport,
+  viewMode,
+  onViewModeChange,
   onManageGroups,
   onManageTags,
   isFilterExpanded,
@@ -196,7 +204,7 @@ export function AccountToolbar({
           <input
             type="text"
             placeholder={isEn ? 'Search accounts...' : '搜索账号...'}
-            className="w-full pl-9 pr-4 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+            className="w-full pl-9 pr-4 py-2 text-sm rounded-xl bg-[var(--glass-bg-subtle)] backdrop-blur-md border border-[var(--glass-border)] focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all"
             value={filter.search ?? ''}
             onChange={(e) => handleSearch(e.target.value)}
           />
@@ -204,6 +212,33 @@ export function AccountToolbar({
 
         {/* 主要操作按钮 - 右对齐 */}
         <div className="flex items-center gap-2 ml-auto">
+          {/* 视图切换 (卡片 / 列表) */}
+          <div className="flex items-center rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg-subtle)] backdrop-blur-md overflow-hidden">
+            <button
+              type="button"
+              onClick={() => onViewModeChange('grid')}
+              title={isEn ? 'Grid view' : '卡片视图'}
+              className={`flex items-center justify-center h-8 w-8 transition-colors ${
+                viewMode === 'grid'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewModeChange('list')}
+              title={isEn ? 'List view' : '列表视图'}
+              className={`flex items-center justify-center h-8 w-8 transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              <ListIcon className="h-4 w-4" />
+            </button>
+          </div>
           <Button onClick={onAddAccount}>
             <Plus className="h-4 w-4 mr-1" />
             {isEn ? 'Add' : '添加账号'}

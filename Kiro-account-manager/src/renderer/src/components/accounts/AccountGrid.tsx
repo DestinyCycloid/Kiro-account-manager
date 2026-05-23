@@ -14,32 +14,38 @@ interface AccountGridProps {
 
 // 卡片高度（包含间距）- 需要足够容纳有多个奖励的 PRO 账号
 const CARD_HEIGHT = 340
-// 卡片固定宽度
-const CARD_WIDTH = 340
+// 卡片最小宽度（小于该宽度自动减少列数）
+const MIN_CARD_WIDTH = 300
 // 卡片间距
 const GAP = 16
+// 内部 px-1 (4px*2 = 8px) 给 box-shadow 留 buffer
+const PADDING_X = 8
 
 export function AccountGrid({ onAddAccount, onEditAccount }: AccountGridProps): React.ReactNode {
   const parentRef = useRef<HTMLDivElement>(null)
   const [detailAccount, setDetailAccount] = useState<Account | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [columns, setColumns] = useState(3)
+  const [cardWidth, setCardWidth] = useState(MIN_CARD_WIDTH)
 
-  // 根据容器宽度动态计算列数
+  // 根据容器宽度动态计算列数与卡片宽度（卡片自适应撑满容器）
   useEffect(() => {
     const container = parentRef.current
     if (!container) return
 
-    const updateColumns = () => {
-      const width = container.clientWidth
-      // 计算能放下多少列：(宽度 + 间距) / (卡片宽度 + 间距)
-      const cols = Math.max(1, Math.floor((width + GAP) / (CARD_WIDTH + GAP)))
+    const updateLayout = () => {
+      const usableWidth = container.clientWidth - PADDING_X
+      // 列数：尽可能多，前提是每列不小于 MIN_CARD_WIDTH
+      const cols = Math.max(1, Math.floor((usableWidth + GAP) / (MIN_CARD_WIDTH + GAP)))
+      // 实际卡片宽度 = 均分容器宽度（减去各 gap）
+      const newCardWidth = (usableWidth - (cols - 1) * GAP) / cols
       setColumns(cols)
+      setCardWidth(newCardWidth)
     }
 
-    updateColumns()
+    updateLayout()
 
-    const resizeObserver = new ResizeObserver(updateColumns)
+    const resizeObserver = new ResizeObserver(updateLayout)
     resizeObserver.observe(container)
 
     return () => resizeObserver.disconnect()
@@ -123,13 +129,13 @@ export function AccountGrid({ onAddAccount, onEditAccount }: AccountGridProps): 
                 transform: `translateY(${virtualRow.start + 8}px)` // +8px 为标签光环留空间
               }}
             >
-              <div className="flex gap-4 px-2 items-start">
+              <div className="flex gap-4 items-start px-1">
                 {row.map((item) => 
                   item === 'add' ? (
                     <div
                       key="add-button"
                       className="flex items-center justify-center border-2 border-dashed border-muted-foreground/20 rounded-xl cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors flex-shrink-0"
-                      style={{ width: CARD_WIDTH, height: CARD_HEIGHT - GAP }}
+                      style={{ width: cardWidth, height: CARD_HEIGHT - GAP }}
                       onClick={onAddAccount}
                     >
                       <div className="flex flex-col items-center gap-2 text-muted-foreground">
@@ -138,7 +144,7 @@ export function AccountGrid({ onAddAccount, onEditAccount }: AccountGridProps): 
                       </div>
                     </div>
                   ) : (
-                    <div key={item.id} className="flex-shrink-0" style={{ width: CARD_WIDTH, height: CARD_HEIGHT - GAP }}>
+                    <div key={item.id} className="flex-shrink-0" style={{ width: cardWidth, height: CARD_HEIGHT - GAP }}>
                       <AccountCard
                         account={item}
                         tags={tags}

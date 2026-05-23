@@ -344,7 +344,7 @@ export function KiroSettingsPage() {
   return (
     <div className="flex-1 p-6 space-y-6 overflow-auto">
       {/* 页面头部 */}
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10 p-6 border border-primary/20">
+      <div className="page-hero p-6">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="relative flex items-center justify-between">
@@ -382,7 +382,7 @@ export function KiroSettingsPage() {
       )}
 
       {/* Agent 设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('agent')}>
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -558,7 +558,7 @@ export function KiroSettingsPage() {
       </Card>
 
       {/* MCP 设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('mcp')}>
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -640,7 +640,7 @@ export function KiroSettingsPage() {
       </Card>
 
       {/* Steering 用户规则 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('steering')}>
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -713,7 +713,7 @@ export function KiroSettingsPage() {
       </Card>
 
       {/* 命令设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-lg" onClick={() => toggleSection('commands')}>
           <CardTitle className="text-base flex items-center justify-between">
             <div className="flex items-center gap-3">

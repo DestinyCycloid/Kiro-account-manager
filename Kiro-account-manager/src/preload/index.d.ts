@@ -566,7 +566,7 @@ interface KiroApi {
   proxyGetLogsCount: () => Promise<number>
 
   // 更新反代服务器配置
-  proxyUpdateConfig: (config: { port?: number; host?: string; apiKey?: string; enableMultiAccount?: boolean; selectedAccountIds?: string[]; logRequests?: boolean; logStreamEvents?: boolean; autoStart?: boolean; maxRetries?: number; preferredEndpoint?: 'codewhisperer' | 'amazonq' | 'amazonq-cli'; autoContinueRounds?: number; enableServerSideToolAutoContinue?: boolean; clientDrivenToolExecution?: boolean; disableTools?: boolean; payloadSizeLimitKB?: number; autoSwitchOnQuotaExhausted?: boolean; accountSelectionStrategy?: 'round-robin' | 'sticky'; modelMappings?: Array<{ id: string; name: string; enabled: boolean; type: 'replace' | 'alias' | 'loadbalance'; sourceModel: string; targetModels: string[]; weights?: number[]; priority: number; apiKeyIds?: string[] }> }) => Promise<{ success: boolean; config?: unknown; error?: string }>
+  proxyUpdateConfig: (config: { port?: number; host?: string; apiKey?: string; enableMultiAccount?: boolean; selectedAccountIds?: string[]; logRequests?: boolean; logStreamEvents?: boolean; autoStart?: boolean; maxRetries?: number; preferredEndpoint?: 'codewhisperer' | 'amazonq' | 'amazonq-cli'; autoContinueRounds?: number; enableServerSideToolAutoContinue?: boolean; clientDrivenToolExecution?: boolean; disableTools?: boolean; payloadSizeLimitKB?: number; tokenBufferReserve?: number; autoSwitchOnQuotaExhausted?: boolean; accountSelectionStrategy?: 'round-robin' | 'sticky'; modelMappings?: Array<{ id: string; name: string; enabled: boolean; type: 'replace' | 'alias' | 'loadbalance'; sourceModel: string; targetModels: string[]; weights?: number[]; priority: number; apiKeyIds?: string[] }> }) => Promise<{ success: boolean; config?: unknown; error?: string }>
 
   // 添加账号到反代池
   proxyAddAccount: (account: { id: string; email?: string; accessToken: string; refreshToken?: string; profileArn?: string; expiresAt?: number; clientId?: string; clientSecret?: string; region?: string; authMethod?: string; provider?: string; machineId?: string }) => Promise<{ success: boolean; accountCount?: number; error?: string }>
@@ -582,6 +582,9 @@ interface KiroApi {
 
   // 重置反代池状态
   proxyResetPool: () => Promise<{ success: boolean; error?: string }>
+
+  // 手动解除账号封禁标记
+  proxyClearAccountSuspended: (accountId: string) => Promise<{ success: boolean; error?: string }>
 
   // 刷新模型缓存
   proxyRefreshModels: () => Promise<{ success: boolean; error?: string }>
@@ -623,6 +626,9 @@ interface KiroApi {
 
   // 监听反代状态变化事件
   onProxyStatusChange: (callback: (status: { running: boolean; port: number }) => void) => () => void
+
+  // 监听反代账号被封禁事件（TEMPORARILY_SUSPENDED / AccountSuspendedException）
+  onProxyAccountSuspended: (callback: (info: { id: string; email?: string; reason: string; message: string; suspendedAt: number }) => void) => () => void
 
   // ============ Usage API 类型设置 ============
 
@@ -719,6 +725,16 @@ interface KiroApi {
 
   // 监听 K-Proxy MITM 拦截事件
   onKproxyMitm: (callback: (info: { host: string; modified: boolean }) => void) => () => void
+
+  // ============ 自定义 titlebar API ============
+  window: {
+    minimize: () => void
+    maximizeToggle: () => void
+    close: () => void
+    isMaximized: () => Promise<boolean>
+    getPlatform: () => Promise<NodeJS.Platform>
+    onMaximizeChange: (callback: (isMaximized: boolean) => void) => () => void
+  }
 
   // ============ 托盘相关 API ============
 

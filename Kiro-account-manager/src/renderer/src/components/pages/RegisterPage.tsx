@@ -799,9 +799,9 @@ export function RegisterPage(): React.JSX.Element {
   }
 
   return (
-    <div className="flex-1 p-6 space-y-6 overflow-auto max-w-5xl mx-auto">
+    <div className="flex-1 p-6 space-y-6 overflow-auto">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10 p-6 border border-primary/20">
+      <div className="page-hero p-6">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="relative flex items-center gap-4">
@@ -816,7 +816,7 @@ export function RegisterPage(): React.JSX.Element {
       </div>
 
       {/* 模式选择 + 配置 */}
-      <Card className="border-0 shadow-sm">
+      <Card className="hover-lift">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-primary" />
@@ -977,7 +977,7 @@ export function RegisterPage(): React.JSX.Element {
       )}
 
       {/* 操作区 */}
-      <Card className="border-0 shadow-sm">
+      <Card className="hover-lift">
         <CardContent className="pt-5 space-y-4">
           {/* 手动模式 email/otp 输入 */}
           {mode === 'manual' && phase === 'email' && (
@@ -1072,7 +1072,7 @@ export function RegisterPage(): React.JSX.Element {
 
       {/* 批量注册 (非手动模式) */}
       {mode !== 'manual' && (
-        <Card className="border-0 shadow-sm">
+        <Card className="hover-lift">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Play className="h-4 w-4 text-primary" />
@@ -1240,7 +1240,7 @@ export function RegisterPage(): React.JSX.Element {
 
       {/* 注册历史 */}
       {history.length > 0 && (
-        <Card className="border-0 shadow-sm overflow-hidden">
+        <Card className="overflow-hidden">
           <CardHeader className="py-3 border-b">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm flex items-center gap-2">
@@ -1280,7 +1280,7 @@ export function RegisterPage(): React.JSX.Element {
 
       {/* 日志 */}
       {logs.length > 0 && (
-        <Card className="border-0 shadow-sm overflow-hidden">
+        <Card className="overflow-hidden">
           <CardHeader className="py-3 border-b">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">{t('register.log')}</CardTitle>

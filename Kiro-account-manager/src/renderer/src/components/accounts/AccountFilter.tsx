@@ -263,7 +263,7 @@ export function AccountFilterPanel(): React.ReactNode {
                 min="0"
                 max="100"
                 placeholder="min"
-                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                className="w-14 px-1.5 py-0.5 text-xs rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg-subtle)] backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-primary/40"
                 value={filter.usageMin ?? ''}
                 onChange={(e) =>
                   setRangeFilter(
@@ -280,7 +280,7 @@ export function AccountFilterPanel(): React.ReactNode {
                 min="0"
                 max="100"
                 placeholder="max"
-                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                className="w-14 px-1.5 py-0.5 text-xs rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg-subtle)] backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-primary/40"
                 value={filter.usageMax !== undefined ? filter.usageMax * 100 : ''}
                 onChange={(e) =>
                   setRangeFilter(
@@ -301,7 +301,7 @@ export function AccountFilterPanel(): React.ReactNode {
                 type="number"
                 min="0"
                 placeholder="min"
-                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                className="w-14 px-1.5 py-0.5 text-xs rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg-subtle)] backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-primary/40"
                 value={filter.daysRemainingMin ?? ''}
                 onChange={(e) =>
                   setRangeFilter(
@@ -317,7 +317,7 @@ export function AccountFilterPanel(): React.ReactNode {
                 type="number"
                 min="0"
                 placeholder="max"
-                className="w-14 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                className="w-14 px-1.5 py-0.5 text-xs rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg-subtle)] backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-primary/40"
                 value={filter.daysRemainingMax ?? ''}
                 onChange={(e) =>
                   setRangeFilter(

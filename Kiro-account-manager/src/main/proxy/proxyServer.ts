@@ -17,7 +17,7 @@ import type {
   TokenRefreshCallback
 } from './types'
 import { AccountPool, ErrorType, classifyError } from './accountPool'
-import { callKiroApiStream, callKiroApi, fetchKiroModels, type KiroModel } from './kiroApi'
+import { callKiroApiStream, callKiroApi, fetchKiroModels, setModelContextWindow, type KiroModel } from './kiroApi'
 import { proxyLogger } from './logger'
 import { getKProxyService, generateDeviceId } from '../kproxy'
 import {
@@ -42,6 +42,9 @@ export interface ProxyServerEvents {
   onStatusChange?: (running: boolean, port: number) => void
   onTokenRefresh?: TokenRefreshCallback
   onAccountUpdate?: (account: ProxyAccount) => void
+  // 账号被 Kiro 后端长期封禁（如 TEMPORARILY_SUSPENDED / AccountSuspendedException）
+  // 不同于临时 token 失效，需人工解封
+  onAccountSuspended?: (info: { accountId: string; email?: string; reason: string; message: string }) => void
   onCreditsUpdate?: (totalCredits: number) => void
   onTokensUpdate?: (inputTokens: number, outputTokens: number) => void
   onRequestStatsUpdate?: (totalRequests: number, successRequests: number, failedRequests: number) => void
@@ -756,6 +759,43 @@ export class ProxyServer {
     return res.writableEnded || res.destroyed
   }
 
+  // 检测错误消息中是否包含账号被长期封禁的特征
+  // 返回 { reason, message } 表示需要标记 suspended；返回 null 表示非封禁错误
+  // 覆盖：
+  //   - Kiro 后端 HTTP 403 + body: { reason: "TEMPORARILY_SUSPENDED", message: "..." }
+  //   - CodeWhisperer AccountSuspendedException
+  //   - 423 Locked
+  private detectSuspendedError(errMsg: string): { reason: string; message: string } | null {
+    if (!errMsg) return null
+
+    // 1) 显式 reason: "TEMPORARILY_SUSPENDED" (Kiro 风控)
+    const reasonMatch = errMsg.match(/"reason"\s*:\s*"(TEMPORARILY_SUSPENDED|ACCOUNT_SUSPENDED|PERMANENTLY_SUSPENDED)"/i)
+    if (reasonMatch) {
+      // 尝试提取 message 字段
+      const msgMatch = errMsg.match(/"message"\s*:\s*"([^"]+)"/)
+      return { reason: reasonMatch[1].toUpperCase(), message: msgMatch?.[1] || errMsg }
+    }
+
+    // 2) 文本特征 "temporarily suspended" / "user id is ... suspended"
+    if (/User\s+ID\s+is\s+(temporarily\s+)?suspended/i.test(errMsg) || /temporarily\s+suspended/i.test(errMsg)) {
+      const msgMatch = errMsg.match(/"message"\s*:\s*"([^"]+)"/)
+      return { reason: 'TEMPORARILY_SUSPENDED', message: msgMatch?.[1] || errMsg }
+    }
+
+    // 3) AccountSuspendedException (CodeWhisperer)
+    if (errMsg.includes('AccountSuspendedException') || errMsg.includes('Account suspended')) {
+      const msgMatch = errMsg.match(/"message"\s*:\s*"([^"]+)"/)
+      return { reason: 'AccountSuspendedException', message: msgMatch?.[1] || errMsg }
+    }
+
+    // 4) HTTP 423 Locked
+    if (/\b423\b/.test(errMsg) && /locked|suspended/i.test(errMsg)) {
+      return { reason: 'ACCOUNT_LOCKED', message: errMsg }
+    }
+
+    return null
+  }
+
   private waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
     this.throwIfAborted(signal)
     return new Promise((resolve, reject) => {
@@ -832,6 +872,12 @@ export class ProxyServer {
         kiroModels = await fetchKiroModels(account, signal)
         if (kiroModels.length > 0) {
           this.modelCache = { models: kiroModels, timestamp: now }
+          // 同步到 kiroApi 的 ctx cache, 供 token 裁剪逻辑使用
+          for (const m of kiroModels) {
+            if (m.tokenLimits?.maxInputTokens) {
+              setModelContextWindow(m.modelId, m.tokenLimits.maxInputTokens)
+            }
+          }
         }
       } catch (error) {
         if (this.isAbortError(error, signal)) throw error
@@ -1037,6 +1083,38 @@ export class ProxyServer {
         const errMsg = lastError.message || ''
 
         console.log(`[ProxyServer] API call failed (attempt ${attempt + 1}/${maxRetries}): ${errMsg}`)
+
+        // 优先检测账号被长期封禁（不是 token 问题，刷新也没用）
+        // 特征：HTTP 403 + reason: "TEMPORARILY_SUSPENDED" 或 AccountSuspendedException / 423
+        const suspendInfo = this.detectSuspendedError(errMsg)
+        if (suspendInfo) {
+          const newlyMarked = this.accountPool.markSuspended(currentAccount.id, suspendInfo.reason, suspendInfo.message)
+          if (newlyMarked) {
+            this.events.onAccountSuspended?.({
+              accountId: currentAccount.id,
+              email: currentAccount.email,
+              reason: suspendInfo.reason,
+              message: suspendInfo.message
+            })
+          }
+          console.warn(`[ProxyServer] Account ${currentAccount.email || currentAccount.id} suspended (${suspendInfo.reason}), switching to next available account`)
+          // 切到下个可用账号（跳过被 suspended 的）
+          if (this.config.enableMultiAccount || this.config.autoSwitchOnQuotaExhausted) {
+            const nextAccount = this.config.enableMultiAccount
+              ? this.accountPool.getNextAccount()
+              : this.accountPool.getNextAvailableAccount(currentAccount.id)
+            if (nextAccount && nextAccount.id !== currentAccount.id) {
+              currentAccount = nextAccount
+              if (!this.config.enableMultiAccount) {
+                this.config.selectedAccountIds = [nextAccount.id]
+                this.events.onAccountUpdate?.(nextAccount)
+              }
+              continue
+            }
+          }
+          // 无可切换的账号 → 直接抛出错误给客户端
+          break
+        }
 
         // 401/403: 尝试刷新 Token
         if (errMsg.includes('401') || errMsg.includes('403') || errMsg.includes('Auth')) {
@@ -1749,6 +1827,12 @@ export class ProxyServer {
           kiroModels = await fetchKiroModels(account, signal)
           if (kiroModels.length > 0) {
             this.modelCache = { models: kiroModels, timestamp: now }
+            // 同步到 kiroApi 的 ctx cache, 供 token 裁剪逻辑使用
+            for (const m of kiroModels) {
+              if (m.tokenLimits?.maxInputTokens) {
+                setModelContextWindow(m.modelId, m.tokenLimits.maxInputTokens)
+              }
+            }
             proxyLogger.info('ProxyServer', `Fetched ${kiroModels.length} models from Kiro API`)
           }
         } catch (error) {

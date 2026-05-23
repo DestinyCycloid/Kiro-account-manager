@@ -77,6 +77,7 @@ interface ProxyConfig {
   clientDrivenToolExecution?: boolean
   disableTools?: boolean
   payloadSizeLimitKB?: number
+  tokenBufferReserve?: number
   autoSwitchOnQuotaExhausted?: boolean
   accountSelectionStrategy?: 'round-robin' | 'sticky'
   modelMappings?: ModelMappingRule[]
@@ -284,9 +285,10 @@ export function ProxyPanel() {
     }
   }
 
-  // 复制地址
+  // 复制地址（0.0.0.0 对人不可读，复制为 localhost）
   const copyAddress = () => {
-    const address = `http://${config.host}:${config.port}`
+    const displayHost = config.host === '0.0.0.0' ? 'localhost' : config.host
+    const address = `http://${displayHost}:${config.port}`
     navigator.clipboard.writeText(address)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -424,7 +426,7 @@ export function ProxyPanel() {
   return (
     <div className="space-y-4">
       {/* 状态卡片 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -500,14 +502,23 @@ export function ProxyPanel() {
 
           {/* 服务地址 */}
           {isRunning && (
-            <div className="flex items-center gap-2">
-              <Label className="min-w-[80px]">{isEn ? 'Address:' : '服务地址:'}</Label>
-              <code className="flex-1 px-3 py-2 bg-muted rounded text-sm">
-                http://{config.host}:{config.port}
-              </code>
-              <Button variant="outline" size="icon" onClick={copyAddress}>
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </Button>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Label className="min-w-[80px]">{isEn ? 'Address:' : '服务地址:'}</Label>
+                <code className="flex-1 px-3 py-2 bg-muted rounded text-sm">
+                  http://{config.host === '0.0.0.0' ? 'localhost' : config.host}:{config.port}
+                </code>
+                <Button variant="outline" size="icon" onClick={copyAddress}>
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              {config.host === '0.0.0.0' && (
+                <p className="text-xs text-muted-foreground pl-[88px]">
+                  {isEn
+                    ? `LAN devices use http://<this-machine-IP>:${config.port}`
+                    : `局域网设备请使用 http://<本机IP>:${config.port}`}
+                </p>
+              )}
             </div>
           )}
 
@@ -534,12 +545,23 @@ export function ProxyPanel() {
                   <Switch
                     id="publicAccess"
                     checked={config.host === '0.0.0.0'}
-                    onCheckedChange={(checked) => {
+                    onCheckedChange={async (checked) => {
                       const newHost = checked ? '0.0.0.0' : '127.0.0.1'
                       setConfig(prev => ({ ...prev, host: newHost }))
-                      window.api.proxyUpdateConfig({ host: newHost })
+                      await window.api.proxyUpdateConfig({ host: newHost })
+                      // 运行中切换 → 自动 stop + start 让新 host 立即生效
+                      if (isRunning) {
+                        try {
+                          await window.api.proxyStop()
+                          // 等待 OS 释放端口
+                          await new Promise(r => setTimeout(r, 200))
+                          await window.api.proxyStart()
+                        } catch (err) {
+                          console.error('[Proxy] Failed to restart after host change:', err)
+                          setError(err instanceof Error ? err.message : String(err))
+                        }
+                      }
                     }}
-                    disabled={isRunning}
                     className="scale-75"
                   />
                   <Label htmlFor="publicAccess" className="text-xs cursor-pointer">{isEn ? 'Public' : '外网'}</Label>
@@ -555,6 +577,20 @@ export function ProxyPanel() {
                 }}
                 disabled={isRunning}
               />
+              {config.host === '0.0.0.0' && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  {isEn
+                    ? 'LAN access enabled. Set an API Key and allow port through firewall.'
+                    : '已开启外网访问。建议设置 API Key + 防火墙放行端口。'}
+                </p>
+              )}
+              {config.host === '127.0.0.1' && (
+                <p className="text-xs text-muted-foreground">
+                  {isEn
+                    ? 'Loopback only. Toggle Public to allow LAN access.'
+                    : '仅本机访问。开启「外网」可让局域网设备访问。'}
+                </p>
+              )}
             </div>
           </div>
 
@@ -877,6 +913,24 @@ export function ProxyPanel() {
                 />
                 <p className="text-xs text-muted-foreground">{isEn ? 'When payload exceeds this limit, oldest tool results will be truncated. Default 1536KB (1.5MB). Reduce if API rejects large payloads.' : '超过此限制时，最旧的工具结果将被截断。默认 1536KB (1.5MB)，如 API 拒绝大 payload 可调小。'}</p>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="tokenBufferReserve">{isEn ? 'Token Buffer Reserve (auto-trim history)' : 'Token Buffer 预留 (自动裁旧 history)'}</Label>
+                <Input
+                  id="tokenBufferReserve"
+                  type="number"
+                  min={5000}
+                  max={150000}
+                  step={1000}
+                  value={config.tokenBufferReserve || 50000}
+                  onChange={(e) => {
+                    const tokens = parseInt(e.target.value) || 50000
+                    setConfig(prev => ({ ...prev, tokenBufferReserve: tokens }))
+                    window.api.proxyUpdateConfig({ tokenBufferReserve: tokens })
+                  }}
+                  disabled={isRunning}
+                />
+                <p className="text-xs text-muted-foreground">{isEn ? 'Tokens reserved below the model context window. Effective trim threshold = model.maxInputTokens - buffer. Default 50K works for all models (200K → trim at 150K, 1M → trim at 950K). Covers system + tools + current message + output + estimation bias.' : '从模型 context window 中预留的 token 余量。有效裁剪阈值 = model.maxInputTokens - buffer。默认 50K 适配所有模型（200K 模型→150K 裁剪，1M 模型→950K 裁剪）。覆盖 system + tools + current message + output + 估算偏差。'}</p>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -885,7 +939,7 @@ export function ProxyPanel() {
       {/* 统计卡片 */}
       {isRunning && (
         <div className="grid grid-cols-6 gap-3">
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-blue-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-blue-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Users className="h-3 w-3" />
@@ -894,7 +948,7 @@ export function ProxyPanel() {
               <div className="text-xl font-bold text-foreground">{availableCount}/{accountCount}</div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-purple-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-purple-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -923,7 +977,7 @@ export function ProxyPanel() {
               <div className="text-xl font-bold text-foreground">{stats?.totalRequests || 0}</div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-green-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-green-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Check className="h-3 w-3" />
@@ -936,7 +990,7 @@ export function ProxyPanel() {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-cyan-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-cyan-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Zap className="h-3 w-3" />
@@ -945,7 +999,7 @@ export function ProxyPanel() {
               <div className="text-xl font-bold text-foreground">{sessionStats?.totalRequests || 0}</div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-orange-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-orange-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Activity className="h-3 w-3" />
@@ -958,7 +1012,7 @@ export function ProxyPanel() {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-primary/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-primary/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Clock className="h-3 w-3" />
@@ -973,7 +1027,7 @@ export function ProxyPanel() {
       {/* 第二行统计卡片 - Token 分解和 Cache */}
       {isRunning && stats && (
         <div className="grid grid-cols-6 gap-3">
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-indigo-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-indigo-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Activity className="h-3 w-3" />
@@ -982,7 +1036,7 @@ export function ProxyPanel() {
               <div className="text-xl font-bold text-indigo-500" title={((stats.inputTokens || 0) + (stats.outputTokens || 0)).toLocaleString()}>{compactNumber((stats.inputTokens || 0) + (stats.outputTokens || 0))}</div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-blue-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-blue-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Activity className="h-3 w-3" />
@@ -995,7 +1049,7 @@ export function ProxyPanel() {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-emerald-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-emerald-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Cpu className="h-3 w-3" />
@@ -1016,7 +1070,7 @@ export function ProxyPanel() {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-violet-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-violet-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Zap className="h-3 w-3" />
@@ -1025,7 +1079,7 @@ export function ProxyPanel() {
               <div className="text-xl font-bold text-violet-500" title={(stats.reasoningTokens || 0).toLocaleString()}>{compactNumber(stats.reasoningTokens || 0)}</div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-green-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-green-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <UserCheck className="h-3 w-3" />
@@ -1036,7 +1090,7 @@ export function ProxyPanel() {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200 bg-gradient-to-br from-amber-500/5 to-transparent">
+          <Card className="hover-lift bg-gradient-to-br from-amber-500/5 to-transparent">
             <CardContent className="pt-3 pb-3">
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Server className="h-3 w-3" />
@@ -1049,7 +1103,7 @@ export function ProxyPanel() {
       )}
 
       {/* API 端点说明 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-primary/10">
@@ -1127,7 +1181,7 @@ export function ProxyPanel() {
 
       {/* 最近请求日志 */}
       {recentLogs.length > 0 && (
-        <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+        <Card className="hover-lift">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
@@ -1170,7 +1224,7 @@ export function ProxyPanel() {
       )}
 
       {/* 功能说明 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-primary/10">
@@ -1302,7 +1356,7 @@ export function ProxyPanel() {
       {/* API Key 管理弹窗 */}
       {showApiKeyManager && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowApiKeyManager(false)} />
+          <div className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl" onClick={() => setShowApiKeyManager(false)} />
           <div className="relative bg-background rounded-lg shadow-lg w-[800px] max-h-[80vh] overflow-y-auto p-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">{isEn ? 'API Key Management' : 'API Key 管理'}</h2>
@@ -1316,3 +1370,5 @@ export function ProxyPanel() {
     </div>
   )
 }
+
+

@@ -155,7 +155,7 @@ export function TagManageDialog({ isOpen, onClose }: TagManageDialogProps): Reac
             <Tag className="h-5 w-5" />
             {isEn ? 'Tag Management' : '标签管理'}
           </CardTitle>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-lg hover:bg-red-500 hover:text-white transition-colors">
             <X className="h-4 w-4" />
           </Button>
         </CardHeader>

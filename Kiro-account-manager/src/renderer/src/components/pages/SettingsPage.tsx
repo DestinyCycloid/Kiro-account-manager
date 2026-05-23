@@ -52,6 +52,32 @@ const themeGroupsZh = [
       { id: 'stone', name: '暖灰', color: '#78716c' },
       { id: 'neutral', name: '中性灰', color: '#737373' },
     ]
+  },
+  {
+    name: '奢华配色',
+    themes: [
+      { id: 'gold', name: '奢华金', color: '#C9A227' },
+      { id: 'navy', name: '海军蓝', color: '#1E40AF' },
+      { id: 'wine', name: '酒红', color: '#9F1239' },
+      { id: 'champagne', name: '香槟', color: '#B89968' },
+    ]
+  },
+  {
+    name: '莫兰迪',
+    themes: [
+      { id: 'dustyblue', name: '烟雾蓝', color: '#64748B' },
+      { id: 'terracotta', name: '陶土橙', color: '#B45434' },
+      { id: 'sage', name: '鼠尾草', color: '#6B8E5A' },
+      { id: 'mauve', name: '烟紫', color: '#8E7CC3' },
+    ]
+  },
+  {
+    name: '自然深色',
+    themes: [
+      { id: 'coral', name: '珊瑚粉', color: '#F87171' },
+      { id: 'forest', name: '森林绿', color: '#166534' },
+      { id: 'ocean', name: '深海青', color: '#155E75' },
+    ]
   }
 ]
 
@@ -100,6 +126,32 @@ const themeGroupsEn = [
       { id: 'zinc', name: 'Zinc', color: '#71717a' },
       { id: 'stone', name: 'Stone', color: '#78716c' },
       { id: 'neutral', name: 'Neutral', color: '#737373' },
+    ]
+  },
+  {
+    name: 'Luxury',
+    themes: [
+      { id: 'gold', name: 'Gold', color: '#C9A227' },
+      { id: 'navy', name: 'Navy', color: '#1E40AF' },
+      { id: 'wine', name: 'Wine', color: '#9F1239' },
+      { id: 'champagne', name: 'Champagne', color: '#B89968' },
+    ]
+  },
+  {
+    name: 'Morandi',
+    themes: [
+      { id: 'dustyblue', name: 'Dusty Blue', color: '#64748B' },
+      { id: 'terracotta', name: 'Terracotta', color: '#B45434' },
+      { id: 'sage', name: 'Sage', color: '#6B8E5A' },
+      { id: 'mauve', name: 'Mauve', color: '#8E7CC3' },
+    ]
+  },
+  {
+    name: 'Natural',
+    themes: [
+      { id: 'coral', name: 'Coral', color: '#F87171' },
+      { id: 'forest', name: 'Forest', color: '#166534' },
+      { id: 'ocean', name: 'Ocean', color: '#155E75' },
     ]
   }
 ]
@@ -348,7 +400,7 @@ export function SettingsPage() {
   return (
     <div className="flex-1 p-6 space-y-6 overflow-auto">
       {/* 页面头部 */}
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10 p-6 border border-primary/20">
+      <div className="page-hero p-6">
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-primary/20 to-transparent rounded-full blur-2xl" />
         <div className="relative flex items-center gap-4">
@@ -363,7 +415,7 @@ export function SettingsPage() {
       </div>
 
       {/* 语言设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -397,7 +449,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 主题设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -477,7 +529,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 隐私设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -547,7 +599,7 @@ export function SettingsPage() {
       </Card>
 
       {/* Token 刷新设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -646,7 +698,7 @@ export function SettingsPage() {
       </Card>
 
       {/* API 类型设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -698,7 +750,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 代理设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -749,7 +801,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 自动换号设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -816,7 +868,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 批量导入设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -847,7 +899,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 系统托盘设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -906,7 +958,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 快捷键设置 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -962,7 +1014,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 机器码管理提示 */}
-      <Card className="border-0 shadow-sm bg-primary/5 border-primary/20 hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift bg-primary/5">
         <CardContent className="py-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -983,7 +1035,7 @@ export function SettingsPage() {
       </Card>
 
       {/* 数据管理 */}
-      <Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <Card className="hover-lift">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">

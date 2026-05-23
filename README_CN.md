@@ -272,6 +272,87 @@ npx electron-builder --linux --arm64
 ## 📋 更新日志
 
 
+### v1.6.7 (2026-5-23)
+
+#### 账号封禁处理 (核心新功能)
+- **新增**: 完整的 TEMPORARILY_SUSPENDED 检测链路 — 反代识别 Kiro 后端风控错误（`403 + reason:"TEMPORARILY_SUSPENDED"`）、`AccountSuspendedException`（CodeWhisperer）、`423 Locked` 三类响应
+- **新增**: `ProxyAccount` 增加 `suspendedAt` / `suspendReason` / `suspendMessage` 字段，跟踪长期封禁状态（区分于临时 `errorCount` 冷却）
+- **新增**: `AccountPool` 增加 `isSuspended` / `markSuspended` / `clearSuspended` 三个方法 — 被封禁账号在 `isAccountAvailable` 中永久跳过，直到手动解封或调用 `reset()`
+- **新增**: `onAccountSuspended` 事件 + IPC `proxy-account-suspended` — 完整桥接 proxy server → main → preload → renderer store → UI
+- **新增**: 封禁状态持久化到 `store.accountData[id].lastError` 和 `status='error'`，应用重启后仍然可见
+- **新增**: 检测到当前账号被封禁时自动切换到下一可用账号（多账号模式和单账号 + 自动切换模式均生效）
+- **改进**: 统一 `isBannedAccountError` 函数 — `store/accounts.ts` / `AccountSelectDialog` / `AccountCard` 三处全部识别 `temporarily_suspended` / `temporarily suspended` / `User ID is suspended` 模式并显示封禁标记
+- **新增**: 手动解封 UI — `AccountCard` 封禁详情弹窗新增「重置封禁状态」按钮，调用 IPC `proxy-clear-account-suspended` → 同时清除反代池 suspended 标记 + 清除 `store.accountData[id].lastError` + 设置 `status='active'`
+- **修复**: `accountPool.addAccount` 之前总是强制设置 `isAvailable=true`，会静默丢失账号重新 add 时带的 suspended 状态（如 `proxy-sync-accounts` 后）。现在 `addAccount` 尊重传入的 `suspendedAt` 字段，保留 `isAvailable=false`，从持久化数据重新加入的被封账号仍被正确跳过。
+
+#### 局域网访问修复 (Issue #75)
+- **修复**: 🔥 **从 1.5.0 升级到 1.6.x 后无法通过局域网访问反代** — 根因：默认 `host` 是 `127.0.0.1`（仅 loopback），且 UI 的「外网」Switch 在反代运行时被 `disabled`，用户无法切换必须停服
+- **修复**: 反代面板的「外网」Switch 现在运行中也可点击 — 切换时自动 stop + start 反代，~300ms 内新 host 生效
+- **改进**: 服务地址显示从 `http://0.0.0.0:5580` 改为 `http://localhost:5580`（前者不是有效的客户端目标地址），复制按钮也使用人类可读形式
+- **改进**: Host 字段下方新增动态提示 — loopback 模式提示如何开启外网访问；外网模式警告需设置 API Key 并放行防火墙端口
+- **改进**: 开启外网模式时，服务地址下方额外显示 `局域网设备请使用 http://<本机IP>:<端口>`
+
+#### UI 优化
+- **新增**: 🎨 **高级 SaaS 玻璃态全面重设计** — 致敬 Linear / Raycast / Vercel 风格的设计系统重构：
+  - **设计令牌**：背景 `#f4f7fb`、主色 `#5B8CFF`、紫辅 `#8B5CF6`、成功色 `#22C55E`、半透明白边框 `rgba(255,255,255,0.4)`
+  - **磨砂玻璃系统**：新增 `.glass-card` / `.glass-card-strong` / `.glass-card-subtle` / `.glass-sidebar` / `.glass-toolbar` 工具类，`backdrop-filter: blur(24px) saturate(180%)`
+  - **悬浮侧边栏**：圆角 24px、玻璃背景、framer-motion spring 宽度动画、激活态采用 layoutId 形变药丸（主色 → 紫辅渐变）
+  - **环境光背景**：双径向渐变（蓝 + 紫）配合 22s/26s 浮动 keyframes，80px 柔光，深色模式自动降透明度
+  - **Card 默认**：`<Card>` 默认 glass variant + `rounded-2xl` (24px)，支持 `variant=glass/glass-strong/glass-subtle/solid/elevated` 与 `interactive` 属性（hover 浮起 -2px + 阴影增强）
+  - **页面 Hero 统一**：8 个页面（首页/账号/设置/反代/K-Proxy/Kiro设置/订阅/注册/关于/机器码）全部使用 `.page-hero` 工具类，24px 圆角玻璃页头
+  - **透明工具栏**：AccountManager 顶部 header 改用 `glass-toolbar`（16px blur + 半透明 + 仅底边线）
+  - **页面切换**：`AnimatePresence` + `motion.div` 包裹页面，路由切换时 fade + 8px Y 轴 spring 过渡
+  - **深色模式**：深海军蓝 `#0a0e1a` 背景配合调优后的玻璃面板，弱光环境下可读性更佳
+  - **依赖**：新增 `framer-motion ^11.x` 支持声明式动画
+- **修复（玻璃态打磨）**：页面滚动失效回归 — `motion.div` 包装器加上 `h-full flex flex-col`，确保子页面的 `flex-1 overflow-auto` 重新生效
+- **优化（玻璃态打磨）**：
+  - `HomePage` / `SettingsPage` / `AboutPage` / `RegisterPage` / `KiroSettingsPage` / `ProxyPanel` 中所有 33 处 `<Card className="border-0 shadow-sm hover:shadow-md transition-shadow duration-200">` 全部替换为 `hover-lift` — Card 默认 glass variant 完全显现
+  - 4 个手写 div 风格的 Dialog 容器（`UpdateDialog` / `CloseConfirmDialog` / `AccountDetailDialog` / `ProxyDetailedLogsDialog`）从 `bg-background rounded-xl border` 换为 `glass-card-strong rounded-2xl` + 遮罩 backdrop-blur
+  - `Button` 组件全面翻新：默认 `rounded-xl`、`transition-all 200ms`，`default`/`destructive` variants 加 hover `-translate-y-px` + 主色辉光环；新增 `gradient` variant（主题渐变背景 + breathe-glow 呼吸动画）；新增 `cta` size（h-12 rounded-2xl，用于主 Call-to-Action）
+  - **21 个主题色全部配套定义 active-pill 渐变对** — 每个主题独立定义 `--gradient-from` / `--gradient-to`（紫/翠/橙/玫瑰/青/琥珀/水鸭/靖/青柠/粉/灰/晴空/紫罗兰/洋红/红/黄/绿/暖灰/中性灰 + default）。Sidebar 的 `motion.span layoutId="sidebar-active-pill"` 读取 CSS var，激活药丸跟随主题色谐和渐变（如翠绿主题 → 翠→青青渐变，不再固定蓝→紫）
+  - `gradient-bg-primary` 和 `gradient-border` 工具类改用 `var(--gradient-from/-to)`，所有渐变按钮/边框自动跟随主题切换
+- **优化（玻璃质感精修）**：
+  - **玻璃阴影 4 层合成**：顶部 1px 白色高光（inset）+ 1px slate-900 @ 4% 外描边 + 0 8px 32px @ 12% 远阴影 + 0 2px 6px @ 5% 近阴影 — 让卡片在浅色背景上有真实的「磨砂亚克力」实物感（之前纯半透明在白底上视觉无差）
+  - **页面光晕渗透**：`main` 容器加 `.page-surface`（双色 18%/14% 蓝紫径向 blob，60px blur），让玻璃卡片有色彩可折射 — 之前白底白卡视觉无对比
+  - **AccountCard 重构**：移除多余的 `border` + `hover:shadow-lg` 覆盖（被 glass 系统覆盖）；非 active/非封禁卡片改用 `hover-lift` 工具类（translateY -2px + 增强阴影）；流光边框与封禁红边保留
+  - **AccountToolbar 输入框**：搜索框、视图切换组按钮改用 `bg-[var(--glass-bg-subtle)] backdrop-blur-md` + rounded-xl + 大焦点环；AccountFilter 中 number input 同处理
+- **新增**: 账号管理页新增**列表视图** — 工具栏增加「卡片/列表」切换按钮，选择持久化到 `localStorage('accounts_viewMode')`。紧凑列表行同行显示邮箱 + 状态 + 订阅 + 标签 + 额度进度 + 快捷操作，密度是卡片的 ~5 倍（适合管理 100+ 账号）
+- **修复**: 系统日志页面的「显示数量」默认值从「全部」改为「5K」，并持久化到 `localStorage('systemLogs_displayLimit')` — 之前用户修改后切页或重启会重置为「全部」，在日志量大时冷启渲染特别慢
+
+#### Token 维度历史裁剪
+- **新增**: `tokenBufferReserve` 配置（替代之前的 `maxInputTokensThreshold`）— 根据 `ListAvailableModels` 返回的真实 `contextWindow` 自适应裁剪
+- **变更**: 每次请求的有效裁剪阈值 = `model.maxInputTokens - tokenBufferReserve`，默认预留 `50000` 适配所有模型（200K 模型 → 150K 阈值，1M 模型 → 950K 阈值）
+- **新增**: 预留 token 覆盖 `system` + `tools` + 当前消息 + 输出额度 + 估算偏差，无论 byte 维度的 payload size 多大都能避免 `CONTENT_LENGTH_EXCEEDS_THRESHOLD` 错误
+- **新增**: 模型 context 缓存从 `fetchKiroModels` 同步到裁剪逻辑，Kiro 新增模型可自动获取正确上下文窗口
+
+#### 弹窗玻璃态系统重构
+- **重构**: 17 个 dialog 统一使用 `.glass-card-strong` — `Card` 重写为 90% 半透白底（`rgba(255,255,255,0.90)` / 深色 `rgba(20,25,40,0.90)`）+ `backdrop-filter: blur(20px) saturate(160%)` 真实磨砂玻璃 + 三层合成深阴影（1px 微外描边 + 0 24px 64px 远阴影 + 0 8px 24px 近接触影）让弹窗有强浮起感
+- **统一**: dialog 背景遮罩从原 `bg-black/40 backdrop-blur-sm` / `bg-black/50` 改为 `bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl`，浅色 12% slate 极淡蒙板 + 强模糊（24px）— 背景虚化但不拉灰 dialog 采样
+- **统一**: 所有 dialog 右上角关闭按钮（×）统一红色 hover — `hover:bg-red-500 hover:text-white transition-colors`，覆盖 `AccountDetailDialog` / `EditAccountDialog` / `AddAccountDialog` / `TagManageDialog` / `GroupManageDialog` / `ExportDialog` / `AccountCard` 封禁+订阅 / `ApiKeyUsageDialog` / `AccountSelectDialog` / `UpdateDialog` 等 15+ 个 dialog，与 TitleBar 危险关闭保持一致语义
+- **改进**: `--glass-bg-strong` token 从纯白实色改为 90% 半透 + `backdrop-filter` 真正生效，dialog 不再是不透明白卡片而是带玻璃质感
+
+#### 主题底色 & 氛围光优化
+- **设计**: 浅色主背景从 `#f4f7fb` → `#EEF2F8` 冰白蓝调（参考 F1 清新蓝），减少「AI 配色」死白感
+- **设计**: 深色主背景从 `#0a0e1a` → `#0B1220` 深空蓝（参考 E1），改为蓝调而非中性灰黑
+- **新增**: `body` 三段渐变 — 浅色顶部 `#E5EBF5` → 中部 `#EEF2F8` → 底部 `#F2F5FA` 模拟天光过渡；深色顶部 `#0F1729` → 中部 `#0B1220` → 底部 `#060A14` 夜空深邃感
+- **新增**: body 渐变顶/底用 `color-mix(in srgb, var(--gradient-from) 10%, ...)` 染上主题色，**主题切换时整个底色跟随**（之前主题只影响按钮，不影响背景氛围）
+- **改进**: ambient blob 颜色从硬编码 `rgba(91,140,255,0.55)` 蓝紫改为 `color-mix(var(--gradient-from) 38%, transparent)` — 切换主题后呼吸光晕也跟随主题色相，蓝/紫/绿/橙/金各主题视觉氛围独立
+- **改进**: titlebar 浅色玻璃从 `rgba(255,255,255,0.75) → rgba(244,247,251,0.65)` 改为 `rgba(255,255,255,0.78) → rgba(229,235,245,0.65)`；深色从中性深灰改为深空蓝调 `rgba(22,30,48,0.85) → rgba(11,18,32,0.75)`
+- **修复**: App 根 `<div>` 去除 `bg-background` 实色 class — 之前覆盖 body 渐变，导致渐变背景看不见
+
+#### 主题色扩展 — 新增 11 个高级主题（共 32 种）
+- **新增**: 「奢华配色」分组 4 个 — `gold` 奢华金 `#C9A227` / `navy` 海军蓝 `#1E40AF` / `wine` 酒红 `#9F1239` / `champagne` 香槟 `#B89968`，适合金融、商务、奢侈品风格场景
+- **新增**: 「莫兰迪色系」分组 4 个 — `dustyblue` 烟雾蓝 `#64748B` / `terracotta` 陶土橙 `#B45434` / `sage` 鼠尾草 `#6B8E5A` / `mauve` 烟紫 `#8E7CC3`，高级灰调降饱和，长时间使用不疲劳
+- **新增**: 「自然深色」分组 3 个 — `coral` 珊瑚粉 `#F87171` / `forest` 森林绿 `#166534` / `ocean` 深海青 `#155E75`，沉静自然质感
+- **改进**: 每个新主题配套深色模式独立色值（如 `forest` 浅色 `#166534` 深色 `#4ADE80`），保证 WCAG 对比度
+- **同步**: `accounts.ts` 主题切换时移除列表加入 11 个新类；`zh.ts` / `en.ts` / `AboutPage.tsx` 中 "21 种主题" → "32 种主题"
+
+#### 额度统计进度条增强
+- **新增**: 进度条上方右侧增加**实时百分比药丸** — 按使用率分级变色：< 50% 绿、50-80% 黄、80-100% 橙、> 100% 红
+- **新增**: 超额时进度条采用**双段视觉化** — 基础段（0-100% 填满，按使用率分级颜色）+ 右侧叠加深红条纹超额段（`animate-pulse` + 45° `repeating-linear-gradient` 斜纹），超额段视觉宽度按相对超额比例计算（最多 60% 避免完全遮盖）
+- **新增**: 超额时进度条下方追加**红色警示横幅** — 显示「⚠️ 已超额 +X.XX%」+「超额积分：Y 积分」，使用 `bg-red-500/10` + `border-red-500/30` 区域强调
+- **改进**: 百分比和超额比例都跟随 `usagePrecision` 设置（开启时 2 位小数，关闭时 1 位）
+
 ### v1.6.6 (2026-5-17)
 
 #### E2E 测试套件

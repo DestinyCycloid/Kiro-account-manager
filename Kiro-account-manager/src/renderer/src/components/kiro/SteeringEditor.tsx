@@ -80,7 +80,7 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl"
         onClick={handleClose}
       />
       
@@ -145,3 +145,5 @@ export function SteeringEditor({ filename, onClose, onSaved }: SteeringEditorPro
     document.body
   )
 }
+
+

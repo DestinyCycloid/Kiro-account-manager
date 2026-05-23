@@ -214,9 +214,9 @@ export function MachineIdPage() {
   const boundAccountCount = Object.keys(accountMachineIds).length
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="flex-1 p-6 space-y-6 overflow-auto">
       {/* Hero Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-primary/10 border border-primary/20">
+      <div className="page-hero">
         <div className="absolute inset-0 bg-grid-white/5" />
         <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-primary/20 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-primary/20 to-transparent rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
@@ -687,7 +687,7 @@ export function MachineIdPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           {/* 背景遮罩 */}
           <div 
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl"
             onClick={() => setShowAccountBindings(false)}
           />
           
@@ -703,7 +703,7 @@ export function MachineIdPage() {
               <Button 
                 variant="ghost" 
                 size="sm" 
-                className="h-8 w-8 p-0"
+                className="h-8 w-8 p-0 rounded-lg hover:bg-red-500 hover:text-white transition-colors"
                 onClick={() => setShowAccountBindings(false)}
               >
                 <X className="h-4 w-4" />
@@ -913,7 +913,7 @@ export function MachineIdPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           {/* 背景遮罩 */}
           <div 
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl"
             onClick={() => setShowHistory(false)}
           />
           
@@ -941,7 +941,7 @@ export function MachineIdPage() {
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 rounded-lg hover:bg-red-500 hover:text-white transition-colors"
                   onClick={() => setShowHistory(false)}
                 >
                   <X className="h-4 w-4" />
@@ -1058,3 +1058,5 @@ export function MachineIdPage() {
     </div>
   )
 }
+
+
