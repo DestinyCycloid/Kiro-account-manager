@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AccountManager } from './components/accounts'
 import { Sidebar, TitleBar, type PageType } from './components/layout'
-import { HomePage, AboutPage, SettingsPage, MachineIdPage, KiroSettingsPage, ProxyPage, KProxyPage, RegisterPage, SubscriptionPage, LogsPage } from './components/pages'
+import { HomePage, SettingsPage, MachineIdPage, KiroSettingsPage, ProxyPage, LogsPage } from './components/pages'
 import { UpdateDialog } from './components/UpdateDialog'
 import { CloseConfirmDialog } from './components/CloseConfirmDialog'
 import { useAccountsStore } from './store/accounts'
@@ -152,18 +152,10 @@ function App(): React.JSX.Element {
         return <KiroSettingsPage />
       case 'proxy':
         return <ProxyPage />
-      case 'kproxy':
-        return <KProxyPage />
-      case 'register':
-        return <RegisterPage />
-      case 'subscription':
-        return <SubscriptionPage />
       case 'logs':
         return <LogsPage />
       case 'settings':
         return <SettingsPage />
-      case 'about':
-        return <AboutPage />
       default:
         return <HomePage />
     }
