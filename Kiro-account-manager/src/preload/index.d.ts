@@ -740,6 +740,11 @@ interface KiroApi {
 
   // 获取托盘设置
   getShowWindowShortcut: () => Promise<string>
+  getAutoUpdateOnStartup: () => Promise<boolean>
+  setAutoUpdateOnStartup: (enabled: boolean) => Promise<{ success: boolean; enabled?: boolean; error?: string }>
+  getProtocolClientPath: () => Promise<{ currentPath: string; defaultPath: string }>
+  setProtocolClientPath: (targetPath: string) => Promise<{ success: boolean; currentPath?: string; defaultPath?: string; error?: string }>
+  resetProtocolClientPath: () => Promise<{ success: boolean; currentPath?: string; defaultPath?: string; error?: string }>
   setShowWindowShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>
   getTraySettings: () => Promise<{
     enabled: boolean

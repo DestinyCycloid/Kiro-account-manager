@@ -301,6 +301,11 @@ export function SettingsPage() {
   // K-Proxy 代理设置状态
   const [useKProxyForApi, setUseKProxyForApi] = useState(false)
   const [kproxyLoading, setKproxyLoading] = useState(true)
+  const [autoUpdateOnStartup, setAutoUpdateOnStartup] = useState(false)
+  const [autoUpdateLoading, setAutoUpdateLoading] = useState(true)
+  const [protocolClientPath, setProtocolClientPath] = useState('')
+  const [protocolDefaultPath, setProtocolDefaultPath] = useState('')
+  const [protocolLoading, setProtocolLoading] = useState(true)
 
   // 加载 K-Proxy 代理设置
   useEffect(() => {
@@ -324,6 +329,67 @@ export function SettingsPage() {
       await window.api.setUseKProxyForApi(enabled)
     } catch (error) {
       console.error('Failed to save K-Proxy settings:', error)
+    }
+  }
+
+  useEffect(() => {
+    const loadAutoUpdateSettings = async () => {
+      try {
+        const enabled = await window.api.getAutoUpdateOnStartup()
+        setAutoUpdateOnStartup(enabled)
+      } catch (error) {
+        console.error('Failed to load auto update settings:', error)
+      } finally {
+        setAutoUpdateLoading(false)
+      }
+    }
+    loadAutoUpdateSettings()
+  }, [])
+
+  const handleAutoUpdateOnStartupChange = async (enabled: boolean) => {
+    setAutoUpdateOnStartup(enabled)
+    try {
+      const result = await window.api.setAutoUpdateOnStartup(enabled)
+      if (!result.success) setAutoUpdateOnStartup(!enabled)
+    } catch (error) {
+      console.error('Failed to save auto update settings:', error)
+      setAutoUpdateOnStartup(!enabled)
+    }
+  }
+
+  useEffect(() => {
+    const loadProtocolSettings = async () => {
+      try {
+        const result = await window.api.getProtocolClientPath()
+        setProtocolClientPath(result.currentPath)
+        setProtocolDefaultPath(result.defaultPath)
+      } catch (error) {
+        console.error('Failed to load protocol settings:', error)
+      } finally {
+        setProtocolLoading(false)
+      }
+    }
+    loadProtocolSettings()
+  }, [])
+
+  const handleApplyProtocolPath = async () => {
+    try {
+      const result = await window.api.setProtocolClientPath(protocolClientPath)
+      if (result.success && result.currentPath) setProtocolClientPath(result.currentPath)
+    } catch (error) {
+      console.error('Failed to apply protocol path:', error)
+    }
+  }
+
+  const handleResetProtocolPath = async () => {
+    try {
+      const result = await window.api.resetProtocolClientPath()
+      if (result.success) {
+        if (result.currentPath) setProtocolClientPath(result.currentPath)
+        if (result.defaultPath) setProtocolDefaultPath(result.defaultPath)
+      }
+    } catch (error) {
+      console.error('Failed to reset protocol path:', error)
     }
   }
 
@@ -895,6 +961,71 @@ export function SettingsPage() {
           <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-2">
             {isEn ? 'Recommended: 10-100. Too high may cause failures, too low is slow.' : '建议范围: 10-100。设置过大可能导致大量「验证失败」，设置过小则导入速度较慢。'}
           </p>
+        </CardContent>
+      </Card>
+
+      <Card className="hover-lift">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <RefreshCw className="h-4 w-4 text-primary" />
+            </div>
+            {isEn ? 'Update' : '更新'}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {autoUpdateLoading ? (
+            <div className="text-sm text-muted-foreground">{isEn ? 'Loading...' : '加载中...'}</div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">{isEn ? 'Auto check updates on startup' : '启动时自动检查更新'}</p>
+                <p className="text-sm text-muted-foreground">{isEn ? 'Only checks for updates, does not auto download' : '仅检查更新，不会自动下载'}</p>
+              </div>
+              <Button
+                variant={autoUpdateOnStartup ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleAutoUpdateOnStartupChange(!autoUpdateOnStartup)}
+              >
+                {autoUpdateOnStartup ? (isEn ? 'On' : '开启') : (isEn ? 'Off' : '关闭')}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="hover-lift">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Globe className="h-4 w-4 text-primary" />
+            </div>
+            {isEn ? 'Kiro Protocol' : 'Kiro 协议'}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {protocolLoading ? (
+            <div className="text-sm text-muted-foreground">{isEn ? 'Loading...' : '加载中...'}</div>
+          ) : (
+            <>
+              <div>
+                <p className="font-medium">{isEn ? 'kiro:// target executable path' : 'kiro:// 协议目标程序路径'}</p>
+                <p className="text-sm text-muted-foreground">{isEn ? 'Default is current running kiro-account-manager absolute path' : '默认是当前运行的 kiro-account-manager 绝对路径'}</p>
+              </div>
+              <input
+                type="text"
+                className="w-full h-9 px-3 rounded-lg border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                value={protocolClientPath}
+                onChange={(e) => setProtocolClientPath(e.target.value)}
+                placeholder={isEn ? 'Absolute executable path' : '可执行文件绝对路径'}
+              />
+              <p className="text-xs text-muted-foreground">{isEn ? `Default: ${protocolDefaultPath}` : `默认: ${protocolDefaultPath}`}</p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={handleApplyProtocolPath}>{isEn ? 'Apply' : '应用'}</Button>
+                <Button size="sm" variant="outline" onClick={handleResetProtocolPath}>{isEn ? 'Restore Default' : '恢复默认'}</Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

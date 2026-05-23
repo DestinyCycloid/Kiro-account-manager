@@ -977,6 +977,22 @@ const api = {
   // 获取显示主窗口快捷键
   getShowWindowShortcut: (): Promise<string> => ipcRenderer.invoke('get-show-window-shortcut'),
 
+  // 获取自动更新设置
+  getAutoUpdateOnStartup: (): Promise<boolean> => ipcRenderer.invoke('get-auto-update-on-startup'),
+
+  // 保存自动更新设置
+  setAutoUpdateOnStartup: (enabled: boolean): Promise<{ success: boolean; enabled?: boolean; error?: string }> =>
+    ipcRenderer.invoke('set-auto-update-on-startup', enabled),
+
+  getProtocolClientPath: (): Promise<{ currentPath: string; defaultPath: string }> =>
+    ipcRenderer.invoke('get-protocol-client-path'),
+
+  setProtocolClientPath: (targetPath: string): Promise<{ success: boolean; currentPath?: string; defaultPath?: string; error?: string }> =>
+    ipcRenderer.invoke('set-protocol-client-path', targetPath),
+
+  resetProtocolClientPath: (): Promise<{ success: boolean; currentPath?: string; defaultPath?: string; error?: string }> =>
+    ipcRenderer.invoke('reset-protocol-client-path'),
+
   // 设置显示主窗口快捷键
   setShowWindowShortcut: (shortcut: string): Promise<{ success: boolean; error?: string }> => 
     ipcRenderer.invoke('set-show-window-shortcut', shortcut),
