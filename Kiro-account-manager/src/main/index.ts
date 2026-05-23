@@ -1,4 +1,4 @@
-﻿import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import * as machineIdModule from './machineId'
 import { join } from 'path'
@@ -32,25 +32,27 @@ import {
   defaultTraySettings
 } from './tray'
 
-// ============ 鑷姩鏇存柊閰嶇疆 ============
+// ============ 自动更新配置 ============
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
 const AUTO_UPDATE_ON_STARTUP = process.env.KAM_AUTO_UPDATE_ON_STARTUP === '1'
 let autoUpdateOnStartup = AUTO_UPDATE_ON_STARTUP
 
 function setupAutoUpdater(): void {
-  // 妫€鏌ユ洿鏂板嚭閿?  autoUpdater.on('error', (error) => {
+  // 检查更新出错
+  autoUpdater.on('error', (error) => {
     console.error('[AutoUpdater] Error:', error)
     mainWindow?.webContents.send('update-error', error.message)
   })
 
-  // 妫€鏌ユ洿鏂颁腑
+  // 检查更新中
   autoUpdater.on('checking-for-update', () => {
     console.log('[AutoUpdater] Checking for update...')
     mainWindow?.webContents.send('update-checking')
   })
 
-  // 鏈夊彲鐢ㄦ洿鏂?  autoUpdater.on('update-available', (info) => {
+  // 有可用更新
+  autoUpdater.on('update-available', (info) => {
     console.log('[AutoUpdater] Update available:', info.version)
     mainWindow?.webContents.send('update-available', {
       version: info.version,
@@ -59,13 +61,13 @@ function setupAutoUpdater(): void {
     })
   })
 
-  // 娌℃湁鍙敤鏇存柊
+  // 没有可用更新
   autoUpdater.on('update-not-available', (info) => {
     console.log('[AutoUpdater] No update available, current:', info.version)
     mainWindow?.webContents.send('update-not-available', { version: info.version })
   })
 
-  // 涓嬭浇杩涘害
+  // 下载进度
   autoUpdater.on('download-progress', (progress) => {
     console.log(`[AutoUpdater] Download progress: ${progress.percent.toFixed(1)}%`)
     mainWindow?.webContents.send('update-download-progress', {
@@ -76,7 +78,7 @@ function setupAutoUpdater(): void {
     })
   })
 
-  // 涓嬭浇瀹屾垚
+  // 下载完成
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[AutoUpdater] Update downloaded:', info.version)
     mainWindow?.webContents.send('update-downloaded', {
@@ -87,35 +89,37 @@ function setupAutoUpdater(): void {
   })
 }
 
-// ============ Kiro API 璋冪敤 ============
+// ============ Kiro API 调用 ============
 const KIRO_API_BASE = 'https://app.kiro.dev/service/KiroWebPortalService/operation'
-// REST API 绔偣閰嶇疆 - 瀹樻柟 Kiro 鎻掍欢浠呮敮鎸?us-east-1 鍜?eu-central-1
+// REST API 端点配置 - 官方 Kiro 插件仅支持 us-east-1 和 eu-central-1
 const KIRO_REST_API_ENDPOINTS: Record<string, string> = {
   'us-east-1': 'https://q.us-east-1.amazonaws.com',
   'eu-central-1': 'https://q.eu-central-1.amazonaws.com'
 }
 
-// 鏍规嵁 SSO 鍖哄煙鏄犲皠鍒版渶杩戠殑 REST API 绔偣
+// 根据 SSO 区域映射到最近的 REST API 端点
 function getRestApiBase(ssoRegion?: string): string {
   if (!ssoRegion) return KIRO_REST_API_ENDPOINTS['us-east-1']
-  // 濡傛灉鏄敮鎸佺殑绔偣鍖哄煙锛岀洿鎺ヤ娇鐢?  if (KIRO_REST_API_ENDPOINTS[ssoRegion]) return KIRO_REST_API_ENDPOINTS[ssoRegion]
-  // EU 鍖哄煙鏄犲皠鍒?eu-central-1
+  // 如果是支持的端点区域，直接使用
+  if (KIRO_REST_API_ENDPOINTS[ssoRegion]) return KIRO_REST_API_ENDPOINTS[ssoRegion]
+  // EU 区域映射到 eu-central-1
   if (ssoRegion.startsWith('eu-')) return KIRO_REST_API_ENDPOINTS['eu-central-1']
-  // 鍏朵粬鍖哄煙榛樿 us-east-1
+  // 其他区域默认 us-east-1
   return KIRO_REST_API_ENDPOINTS['us-east-1']
 }
 
-// 鑾峰彇澶囩敤 REST API 绔偣锛堢敤浜?fallback锛?function getFallbackRestApiBase(ssoRegion?: string): string {
+// 获取备用 REST API 端点（用于 fallback）
+function getFallbackRestApiBase(ssoRegion?: string): string {
   const primary = getRestApiBase(ssoRegion)
-  // 杩斿洖鍙︿竴涓鐐逛綔涓?fallback
+  // 返回另一个端点作为 fallback
   return primary === KIRO_REST_API_ENDPOINTS['eu-central-1']
     ? KIRO_REST_API_ENDPOINTS['us-east-1']
     : KIRO_REST_API_ENDPOINTS['eu-central-1']
 }
 
-// API 绫诲瀷閰嶇疆
+// API 类型配置
 type UsageApiType = 'rest' | 'cbor'
-let currentUsageApiType: UsageApiType = 'rest' // 榛樿浣跨敤 REST API (GetUsageLimits)
+let currentUsageApiType: UsageApiType = 'rest' // 默认使用 REST API (GetUsageLimits)
 
 export function setUsageApiType(type: UsageApiType): void {
   currentUsageApiType = type
@@ -126,12 +130,12 @@ export function getUsageApiType(): UsageApiType {
   return currentUsageApiType
 }
 
-// 鏄惁浣跨敤 K-Proxy 浠ｇ悊鍙戦€?API 璇锋眰
+// 是否使用 K-Proxy 代理发送 API 请求
 let useKProxyForApi: boolean = false
 
 export function setUseKProxyForApi(enabled: boolean): void {
   useKProxyForApi = enabled
-  // 鍚屾璁剧疆鍒?kiroApi.ts
+  // 同步设置到 kiroApi.ts
   setUseKProxyForApiInProxy(enabled)
   console.log(`[API] Use K-Proxy for API requests: ${enabled}`)
 }
@@ -140,7 +144,8 @@ export function getUseKProxyForApi(): boolean {
   return useKProxyForApi
 }
 
-// 鑾峰彇缃戠粶浠ｇ悊 agent锛堜紭鍏?K-Proxy锛屽叾娆＄敤鎴疯缃唬鐞嗭紝鍏舵绯荤粺浠ｇ悊锛?function getNetworkAgent(): ProxyAgent | undefined {
+// 获取网络代理 agent（优先 K-Proxy，其次用户设置代理，其次系统代理）
+function getNetworkAgent(): ProxyAgent | undefined {
   if (useKProxyForApi) {
     const kproxyService = getKProxyService()
     if (kproxyService?.isRunning()) {
@@ -160,7 +165,7 @@ export function getUseKProxyForApi(): boolean {
   return undefined
 }
 
-// 閫氱敤 fetch 鍑芥暟锛屼娇鐢?getNetworkAgent 鑾峰彇浠ｇ悊
+// 通用 fetch 函数，使用 getNetworkAgent 获取代理
 async function fetchWithAppProxy(url: string, options: RequestInit): Promise<Response> {
   const agent = getNetworkAgent()
   if (agent) {
@@ -169,12 +174,12 @@ async function fetchWithAppProxy(url: string, options: RequestInit): Promise<Res
   return await fetch(url, options)
 }
 
-// 鍏煎鍑芥暟锛屾寚鍚?getNetworkAgent
+// 兼容函数，指向 getNetworkAgent
 function getKProxyAgent(): ProxyAgent | undefined {
   return getNetworkAgent()
 }
 
-// ============ OIDC Token 鍒锋柊 ============
+// ============ OIDC Token 刷新 ============
 interface OidcRefreshResult {
   success: boolean
   accessToken?: string
@@ -183,12 +188,12 @@ interface OidcRefreshResult {
   error?: string
 }
 
-// 绀句氦鐧诲綍 (GitHub/Google) 鐨?Token 鍒锋柊绔偣
+// 社交登录 (GitHub/Google) 的 Token 刷新端点
 const KIRO_AUTH_ENDPOINT = 'https://prod.us-east-1.auth.desktop.kiro.dev'
 
-// ============ 浠ｇ悊璁剧疆 ============
+// ============ 代理设置 ============
 
-// 璁剧疆浠ｇ悊鐜鍙橀噺
+// 设置代理环境变量
 function applyProxySettings(enabled: boolean, url: string): void {
   if (enabled && url) {
     process.env.HTTP_PROXY = url
@@ -205,10 +210,11 @@ function applyProxySettings(enabled: boolean, url: string): void {
   }
 }
 
-// ============ 闃叉姈 store 鍐欏叆锛堝噺灏戠鐩?I/O锛?============
+// ============ 防抖 store 写入（减少磁盘 I/O） ============
 const pendingStoreWrites: Map<string, unknown> = new Map()
 let storeFlushTimer: ReturnType<typeof setTimeout> | null = null
-const STORE_FLUSH_INTERVAL = 5000 // 5 绉掓壒閲忓啓鍏ヤ竴娆?
+const STORE_FLUSH_INTERVAL = 5000 // 5 秒批量写入一次
+
 function debouncedStoreSet(key: string, value: unknown): void {
   pendingStoreWrites.set(key, value)
   if (!storeFlushTimer) {
@@ -235,31 +241,33 @@ function debouncedUpdateTrayMenu(): void {
   }, 3000)
 }
 
-// ============ Kiro API 鍙嶄唬鏈嶅姟鍣?============
+// ============ Kiro API 反代服务器 ============
 let proxyServer: ProxyServer | null = null
 
 function initProxyServer(): ProxyServer {
   if (proxyServer) return proxyServer
 
-  // 纭繚鏃ュ織瀛樺偍宸插垵濮嬪寲锛坅pp.whenReady 涓凡璋冪敤锛屾澶勫厹搴曪級
+  // 确保日志存储已初始化（app.whenReady 中已调用，此处兜底）
   proxyLogStore.initialize(app.getPath('userData'))
 
-  // 浠?store 鍔犺浇淇濆瓨鐨勯厤缃紝濡傛灉娌℃湁鍒欎娇鐢ㄩ粯璁ら厤缃?  const savedConfig = store?.get('proxyConfig') as Partial<ProxyConfig> | undefined
-  // 浠?store 鍔犺浇淇濆瓨鐨?Usage API 绫诲瀷
+  // 从 store 加载保存的配置，如果没有则使用默认配置
+  const savedConfig = store?.get('proxyConfig') as Partial<ProxyConfig> | undefined
+  // 从 store 加载保存的 Usage API 类型
   const savedUsageApiType = store?.get('usageApiType') as 'rest' | 'cbor' | undefined
   if (savedUsageApiType) {
     setUsageApiType(savedUsageApiType)
   }
-  // 浠?store 鍔犺浇淇濆瓨鐨?K-Proxy 浠ｇ悊璁剧疆
+  // 从 store 加载保存的 K-Proxy 代理设置
   const savedUseKProxyForApi = store?.get('useKProxyForApi') as boolean | undefined
   if (savedUseKProxyForApi !== undefined) {
     setUseKProxyForApi(savedUseKProxyForApi)
   }
-  // 浠?store 鍔犺浇淇濆瓨鐨勭疮璁?credits 鍜?tokens
+  // 从 store 加载保存的累计 credits 和 tokens
   const savedTotalCredits = (store?.get('proxyTotalCredits') as number) || 0
   const savedInputTokens = (store?.get('proxyInputTokens') as number) || 0
   const savedOutputTokens = (store?.get('proxyOutputTokens') as number) || 0
-  // 浠?store 鍔犺浇淇濆瓨鐨勮姹傜粺璁?  const savedTotalRequests = (store?.get('proxyTotalRequests') as number) || 0
+  // 从 store 加载保存的请求统计
+  const savedTotalRequests = (store?.get('proxyTotalRequests') as number) || 0
   const savedSuccessRequests = (store?.get('proxySuccessRequests') as number) || 0
   const savedFailedRequests = (store?.get('proxyFailedRequests') as number) || 0
   const defaultConfig: ProxyConfig = {
@@ -272,19 +280,19 @@ function initProxyServer(): ProxyServer {
     maxConcurrent: 10,
     maxRetries: 3,
     retryDelayMs: 1000,
-    tokenRefreshBeforeExpiry: 300, // 5鍒嗛挓鎻愬墠鍒锋柊
+    tokenRefreshBeforeExpiry: 300, // 5分钟提前刷新
     enableServerSideToolAutoContinue: false,
     clientDrivenToolExecution: true
   }
   
-  // 鍚堝苟淇濆瓨鐨勯厤缃拰榛樿閰嶇疆
+  // 合并保存的配置和默认配置
   const config: ProxyConfig = savedConfig ? { ...defaultConfig, ...savedConfig } : defaultConfig
 
-  // 鎭㈠ payload 澶у皬闄愬埗
+  // 恢复 payload 大小限制
   if (config.payloadSizeLimitKB) {
     setPayloadSizeLimitKB(config.payloadSizeLimitKB)
   }
-  // 鎭㈠ Token buffer reserve
+  // 恢复 Token buffer reserve
   if (config.tokenBufferReserve) {
     setTokenBufferReserve(config.tokenBufferReserve)
   }
@@ -305,7 +313,7 @@ function initProxyServer(): ProxyServer {
       onStatusChange: (running, port) => {
         mainWindow?.webContents.send('proxy-status-change', { running, port })
       },
-      // Token 鍒锋柊鍥炶皟 - 澶嶇敤宸叉湁鐨勫埛鏂伴€昏緫
+      // Token 刷新回调 - 复用已有的刷新逻辑
       onTokenRefresh: async (account) => {
         try {
           console.log(`[ProxyServer] Refreshing token for ${account.email || account.id}`)
@@ -325,12 +333,12 @@ function initProxyServer(): ProxyServer {
               expiresAt: Date.now() + (refreshResult.expiresIn || 3600) * 1000
             }
           }
-          return { success: false, error: refreshResult.error || 'Token 鍒锋柊澶辫触' }
+          return { success: false, error: refreshResult.error || 'Token 刷新失败' }
         } catch (error) {
           return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
         }
       },
-      // 璐﹀彿鏇存柊鍥炶皟 - 閫氱煡娓叉煋杩涚▼鏇存柊璐﹀彿鏁版嵁
+      // 账号更新回调 - 通知渲染进程更新账号数据
       onAccountUpdate: (account) => {
         mainWindow?.webContents.send('proxy-account-update', {
           id: account.id,
@@ -339,10 +347,11 @@ function initProxyServer(): ProxyServer {
           expiresAt: account.expiresAt
         })
       },
-      // 璐﹀彿琚?Kiro 鍚庣闀挎湡灏佺 - 閫氱煡娓叉煋杩涚▼鏍囪 lastError + 鎸佷箙鍖栧埌 store
-      // 涓嶅悓浜?token 澶辨晥锛岄渶瑕佷汉宸ヨВ灏侊紱璐﹀彿姹犲凡鑷姩璺宠繃璇ヨ处鍙?      onAccountSuspended: (info) => {
+      // 账号被 Kiro 后端长期封禁 - 通知渲染进程标记 lastError + 持久化到 store
+      // 不同于 token 失效，需要人工解封；账号池已自动跳过该账号
+      onAccountSuspended: (info) => {
         console.warn(`[ProxyServer] Account suspended: ${info.email || info.accountId} (${info.reason})`)
-        // 鎺ㄩ€?IPC 浜嬩欢缁欏墠绔?store
+        // 推送 IPC 事件给前端 store
         mainWindow?.webContents.send('proxy-account-suspended', {
           id: info.accountId,
           email: info.email,
@@ -350,7 +359,8 @@ function initProxyServer(): ProxyServer {
           message: info.message,
           suspendedAt: Date.now()
         })
-        // 鍚屾鍐欏叆 store accountData[id].lastError, 淇濊瘉涓嬫鍚姩鏃?UI 浠嶇劧鑳界湅鍒板皝绂佺姸鎬?        if (store) {
+        // 同步写入 store accountData[id].lastError, 保证下次启动时 UI 仍然能看到封禁状态
+        if (store) {
           try {
             const accountData = store.get('accountData') as { accounts?: Record<string, Record<string, unknown>> } | undefined
             if (accountData?.accounts?.[info.accountId]) {
@@ -368,21 +378,24 @@ function initProxyServer(): ProxyServer {
           }
         }
       },
-      // Credits 鏇存柊鍥炶皟 - 浣跨敤闃叉姈鎸佷箙鍖?      onCreditsUpdate: (totalCredits) => {
+      // Credits 更新回调 - 使用防抖持久化
+      onCreditsUpdate: (totalCredits) => {
         debouncedStoreSet('proxyTotalCredits', totalCredits)
       },
-      // Tokens 鏇存柊鍥炶皟 - 浣跨敤闃叉姈鎸佷箙鍖?      onTokensUpdate: (inputTokens, outputTokens) => {
+      // Tokens 更新回调 - 使用防抖持久化
+      onTokensUpdate: (inputTokens, outputTokens) => {
         debouncedStoreSet('proxyInputTokens', inputTokens)
         debouncedStoreSet('proxyOutputTokens', outputTokens)
       },
-      // 璇锋眰缁熻鏇存柊鍥炶皟 - 浣跨敤闃叉姈鎸佷箙鍖?      onRequestStatsUpdate: (totalRequests, successRequests, failedRequests) => {
+      // 请求统计更新回调 - 使用防抖持久化
+      onRequestStatsUpdate: (totalRequests, successRequests, failedRequests) => {
         debouncedStoreSet('proxyTotalRequests', totalRequests)
         debouncedStoreSet('proxySuccessRequests', successRequests)
         debouncedStoreSet('proxyFailedRequests', failedRequests)
-        // 鏇存柊鎵樼洏鑿滃崟锛堜篃闃叉姈锛岄伩鍏嶉绻侀噸寤鸿彍鍗曪級
+        // 更新托盘菜单（也防抖，避免频繁重建菜单）
         debouncedUpdateTrayMenu()
       },
-      // 璐﹀彿姹犱负绌烘椂鎳掑姞杞?- 浠?store 璇诲彇璐﹀彿鏁版嵁鍚屾鍒?pool
+      // 账号池为空时懒加载 - 从 store 读取账号数据同步到 pool
       onPoolEmpty: async () => {
         await initStore()
         if (!store) return
@@ -413,29 +426,32 @@ function initProxyServer(): ProxyServer {
     }
   )
 
-  // 鎭㈠淇濆瓨鐨勭疮璁?credits
+  // 恢复保存的累计 credits
   if (savedTotalCredits > 0) {
     proxyServer.setTotalCredits(savedTotalCredits)
   }
 
-  // 鎭㈠淇濆瓨鐨勭疮璁?tokens
+  // 恢复保存的累计 tokens
   if (savedInputTokens > 0 || savedOutputTokens > 0) {
     proxyServer.setTotalTokens(savedInputTokens, savedOutputTokens)
   }
 
-  // 鎭㈠淇濆瓨鐨勮姹傜粺璁?  if (savedTotalRequests > 0 || savedSuccessRequests > 0 || savedFailedRequests > 0) {
+  // 恢复保存的请求统计
+  if (savedTotalRequests > 0 || savedSuccessRequests > 0 || savedFailedRequests > 0) {
     proxyServer.setRequestStats(savedTotalRequests, savedSuccessRequests, savedFailedRequests)
   }
 
   return proxyServer
 }
 
-// ============ 闅愮妯″紡鎵撳紑娴忚鍣?============
+// ============ 隐私模式打开浏览器 ============
 import { exec, execSync } from 'child_process'
 
-// 鑾峰彇 Windows 榛樿娴忚鍣?function getWindowsDefaultBrowser(): string {
+// 获取 Windows 默认浏览器
+function getWindowsDefaultBrowser(): string {
   try {
-    // 浠庢敞鍐岃〃璇诲彇榛樿娴忚鍣?    const progId = execSync(
+    // 从注册表读取默认浏览器
+    const progId = execSync(
       'reg query "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice" /v ProgId',
       { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
     )
@@ -452,13 +468,14 @@ import { exec, execSync } from 'child_process'
   }
 }
 
-// 浣跨敤闅愮妯″紡鎵撳紑娴忚鍣?function openBrowserInPrivateMode(url: string): void {
+// 使用隐私模式打开浏览器
+function openBrowserInPrivateMode(url: string): void {
   const platform = process.platform
   console.log(`[Browser] Opening in private mode on ${platform}: ${url}`)
 
   try {
     if (platform === 'win32') {
-      // Windows: 妫€娴嬮粯璁ゆ祻瑙堝櫒骞朵娇鐢ㄥ搴旂殑闅愮妯″紡鍙傛暟
+      // Windows: 检测默认浏览器并使用对应的隐私模式参数
       const defaultBrowser = getWindowsDefaultBrowser()
       console.log(`[Browser] Detected default browser: ${defaultBrowser}`)
       
@@ -480,7 +497,8 @@ import { exec, execSync } from 'child_process'
           command = `start opera --private "${url}"`
           break
         default:
-          // 鏈煡娴忚鍣紝灏濊瘯甯歌娴忚鍣?          console.log('[Browser] Unknown default browser, trying common browsers...')
+          // 未知浏览器，尝试常见浏览器
+          console.log('[Browser] Unknown default browser, trying common browsers...')
           exec(`start chrome --incognito "${url}"`, (err) => {
             if (err) {
               exec(`start msedge -inprivate "${url}"`, (err2) => {
@@ -505,7 +523,8 @@ import { exec, execSync } from 'child_process'
         }
       })
     } else if (platform === 'darwin') {
-      // macOS: 灏濊瘯 Chrome -> Firefox -> 榛樿娴忚鍣?      exec(`open -na "Google Chrome" --args --incognito "${url}"`, (err) => {
+      // macOS: 尝试 Chrome -> Firefox -> 默认浏览器
+      exec(`open -na "Google Chrome" --args --incognito "${url}"`, (err) => {
         if (err) {
           exec(`open -a Firefox --args -private-window "${url}"`, (err2) => {
             if (err2) {
@@ -516,7 +535,7 @@ import { exec, execSync } from 'child_process'
         }
       })
     } else {
-      // Linux: 灏濊瘯 Chrome -> Chromium -> Firefox
+      // Linux: 尝试 Chrome -> Chromium -> Firefox
       exec(`google-chrome --incognito "${url}"`, (err) => {
         if (err) {
           exec(`chromium --incognito "${url}"`, (err2) => {
@@ -538,7 +557,7 @@ import { exec, execSync } from 'child_process'
   }
 }
 
-// IdC (BuilderId) 鐨?OIDC Token 鍒锋柊
+// IdC (BuilderId) 的 OIDC Token 刷新
 async function refreshOidcToken(
   refreshToken: string,
   clientId: string,
@@ -577,7 +596,7 @@ async function refreshOidcToken(
     return {
       success: true,
       accessToken: data.accessToken,
-      refreshToken: data.refreshToken || refreshToken, // 鍙兘涓嶈繑鍥炴柊鐨?refreshToken
+      refreshToken: data.refreshToken || refreshToken, // 可能不返回新的 refreshToken
       expiresIn: data.expiresIn
     }
   } catch (error) {
@@ -586,7 +605,7 @@ async function refreshOidcToken(
   }
 }
 
-// 绀句氦鐧诲綍 (GitHub/Google) 鐨?Token 鍒锋柊
+// 社交登录 (GitHub/Google) 的 Token 刷新
 async function refreshSocialToken(refreshToken: string): Promise<OidcRefreshResult> {
   console.log(`[Social] Refreshing token...`)
   
@@ -624,7 +643,7 @@ async function refreshSocialToken(refreshToken: string): Promise<OidcRefreshResu
   }
 }
 
-// 閫氱敤 Token 鍒锋柊 - 鏍规嵁 authMethod 閫夋嫨鍒锋柊鏂瑰紡
+// 通用 Token 刷新 - 根据 authMethod 选择刷新方式
 async function refreshTokenByMethod(
   token: string,
   clientId: string,
@@ -632,11 +651,11 @@ async function refreshTokenByMethod(
   region: string = 'us-east-1',
   authMethod?: string
 ): Promise<OidcRefreshResult> {
-  // 濡傛灉鏄ぞ浜ょ櫥褰曪紝浣跨敤 Kiro Auth Service 鍒锋柊
+  // 如果是社交登录，使用 Kiro Auth Service 刷新
   if (authMethod === 'social') {
     return refreshSocialToken(token)
   }
-  // 鍚﹀垯浣跨敤 OIDC 鍒锋柊 (IdC/BuilderId)
+  // 否则使用 OIDC 刷新 (IdC/BuilderId)
   return refreshOidcToken(token, clientId, clientSecret, region)
 }
 
@@ -648,7 +667,7 @@ function generateInvocationId(): string {
   })
 }
 
-// Kiro 鐗堟湰鍜?User-Agent 鐢熸垚
+// Kiro 版本和 User-Agent 生成
 const KIRO_VERSION = '0.6.18'
 
 function getKiroUserAgent(machineId?: string): string {
@@ -667,7 +686,7 @@ function getCurrentMachineId(): string | undefined {
   return kproxyService.getDeviceId()
 }
 
-// ============ AWS SSO 璁惧鎺堟潈娴佺▼ ============
+// ============ AWS SSO 设备授权流程 ============
 interface SsoAuthResult {
   success: boolean
   accessToken?: string
@@ -690,7 +709,8 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
   let deviceSessionToken: string
   let interval = 1
 
-  // Step 1: 娉ㄥ唽 OIDC 瀹㈡埛绔?  console.log('[SSO] Step 1: Registering OIDC client...')
+  // Step 1: 注册 OIDC 客户端
+  console.log('[SSO] Step 1: Registering OIDC client...')
   try {
     const regRes = await fetchWithAppProxy(`${oidcBase}/client/register`, {
       method: 'POST',
@@ -709,10 +729,10 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
     clientSecret = regData.clientSecret
     console.log(`[SSO] Client registered: ${clientId.substring(0, 30)}...`)
   } catch (e) {
-    return { success: false, error: `娉ㄥ唽瀹㈡埛绔け璐? ${e}` }
+    return { success: false, error: `注册客户端失败: ${e}` }
   }
 
-  // Step 2: 鍙戣捣璁惧鎺堟潈
+  // Step 2: 发起设备授权
   console.log('[SSO] Step 2: Starting device authorization...')
   try {
     const devRes = await fetchWithAppProxy(`${oidcBase}/device_authorization`, {
@@ -727,10 +747,10 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
     interval = devData.interval || 1
     console.log(`[SSO] Device code obtained, user_code: ${userCode}`)
   } catch (e) {
-    return { success: false, error: `璁惧鎺堟潈澶辫触: ${e}` }
+    return { success: false, error: `设备授权失败: ${e}` }
   }
 
-  // Step 3: 楠岃瘉 Bearer Token (whoAmI)
+  // Step 3: 验证 Bearer Token (whoAmI)
   console.log('[SSO] Step 3: Verifying bearer token...')
   try {
     const whoRes = await fetchWithAppProxy(`${portalBase}/token/whoAmI`, {
@@ -740,10 +760,10 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
     if (!whoRes.ok) throw new Error(`whoAmI failed: ${whoRes.status}`)
     console.log('[SSO] Bearer token verified')
   } catch (e) {
-    return { success: false, error: `Token 楠岃瘉澶辫触: ${e}` }
+    return { success: false, error: `Token 验证失败: ${e}` }
   }
 
-  // Step 4: 鑾峰彇璁惧浼氳瘽浠ょ墝
+  // Step 4: 获取设备会话令牌
   console.log('[SSO] Step 4: Getting device session token...')
   try {
     const sessRes = await fetchWithAppProxy(`${portalBase}/session/device`, {
@@ -756,10 +776,10 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
     deviceSessionToken = sessData.token
     console.log('[SSO] Device session token obtained')
   } catch (e) {
-    return { success: false, error: `鑾峰彇璁惧浼氳瘽澶辫触: ${e}` }
+    return { success: false, error: `获取设备会话失败: ${e}` }
   }
 
-  // Step 5: 鎺ュ彈鐢ㄦ埛浠ｇ爜
+  // Step 5: 接受用户代码
   console.log('[SSO] Step 5: Accepting user code...')
   let deviceContext: { deviceContextId?: string; clientId?: string; clientType?: string } | null = null
   try {
@@ -773,10 +793,10 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
     deviceContext = acceptData.deviceContext || null
     console.log('[SSO] User code accepted')
   } catch (e) {
-    return { success: false, error: `鎺ュ彈鐢ㄦ埛浠ｇ爜澶辫触: ${e}` }
+    return { success: false, error: `接受用户代码失败: ${e}` }
   }
 
-  // Step 6: 鎵瑰噯鎺堟潈
+  // Step 6: 批准授权
   if (deviceContext?.deviceContextId) {
     console.log('[SSO] Step 6: Approving authorization...')
     try {
@@ -795,14 +815,14 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
       if (!approveRes.ok) throw new Error(`Approve failed: ${approveRes.status}`)
       console.log('[SSO] Authorization approved')
     } catch (e) {
-      return { success: false, error: `鎵瑰噯鎺堟潈澶辫触: ${e}` }
+      return { success: false, error: `批准授权失败: ${e}` }
     }
   }
 
-  // Step 7: 杞鑾峰彇 Token
+  // Step 7: 轮询获取 Token
   console.log('[SSO] Step 7: Polling for token...')
   const startTime = Date.now()
-  const timeout = 120000 // 2 鍒嗛挓瓒呮椂
+  const timeout = 120000 // 2 分钟超时
 
   while (Date.now() - startTime < timeout) {
     await new Promise(r => setTimeout(r, interval * 1000))
@@ -836,11 +856,11 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
       if (tokenRes.status === 400) {
         const errData = await tokenRes.json() as { error?: string }
         if (errData.error === 'authorization_pending') {
-          continue // 缁х画杞
+          continue // 继续轮询
         } else if (errData.error === 'slow_down') {
           interval += 5
         } else {
-          return { success: false, error: `Token 鑾峰彇澶辫触: ${errData.error}` }
+          return { success: false, error: `Token 获取失败: ${errData.error}` }
         }
       }
     } catch (e) {
@@ -848,24 +868,24 @@ async function ssoDeviceAuth(bearerToken: string, region: string = 'us-east-1'):
     }
   }
 
-  return { success: false, error: '鎺堟潈瓒呮椂锛岃閲嶈瘯' }
+  return { success: false, error: '授权超时，请重试' }
 }
 
 async function kiroApiRequest<T>(
   operation: string,
   body: Record<string, unknown>,
   accessToken: string,
-  idp: string = 'BuilderId',  // 鏀寔 BuilderId, Github, Google
-  accountMachineId?: string,  // 璐︽埛缁戝畾鐨勮澶?ID
-  email?: string              // 鐢ㄤ簬鏃ュ織鏍囪瘑
+  idp: string = 'BuilderId',  // 支持 BuilderId, Github, Google
+  accountMachineId?: string,  // 账户绑定的设备 ID
+  email?: string              // 用于日志标识
 ): Promise<T> {
-  // 浼樺厛浣跨敤璐︽埛缁戝畾鐨勮澶?ID锛屽叾娆′娇鐢?K-Proxy 鍏ㄥ眬璁惧 ID
+  // 优先使用账户绑定的设备 ID，其次使用 K-Proxy 全局设备 ID
   const machineId = accountMachineId || getCurrentMachineId()
   const logTag = email || `token:${accessToken?.slice(-6) || '?'}`
   console.log(`[Kiro API] ${operation} [${logTag}] ${idp} machineId=${machineId?.slice(0, 8) || 'none'}`)
   const agent = getKProxyAgent()
   
-  // 浣跨敤 undici fetch 鏀寔浠ｇ悊
+  // 使用 undici fetch 支持代理
   const headers: Record<string, string> = {
     'accept': 'application/cbor',
     'content-type': 'application/cbor',
@@ -894,20 +914,23 @@ async function kiroApiRequest<T>(
   }
 
   if (!response.ok) {
-    // 灏濊瘯瑙ｆ瀽 CBOR 鏍煎紡鐨勯敊璇搷搴?    let errorMessage = `HTTP ${response.status}`
+    // 尝试解析 CBOR 格式的错误响应
+    let errorMessage = `HTTP ${response.status}`
     const errorBuffer = await response.arrayBuffer()
     try {
       const errorData = decode(Buffer.from(errorBuffer)) as { __type?: string; message?: string }
       if (errorData.__type && errorData.message) {
-        // 鎻愬彇閿欒绫诲瀷鍚嶇О锛堝幓鎺夊懡鍚嶇┖闂达級
+        // 提取错误类型名称（去掉命名空间）
         const errorType = errorData.__type.split('#').pop() || errorData.__type
-        // 鍦ㄩ敊璇秷鎭腑鍖呭惈 HTTP 鐘舵€佺爜锛屼究浜庡皝绂佹娴?        errorMessage = `HTTP ${response.status}: ${errorType}: ${errorData.message}`
+        // 在错误消息中包含 HTTP 状态码，便于封禁检测
+        errorMessage = `HTTP ${response.status}: ${errorType}: ${errorData.message}`
       } else if (errorData.message) {
         errorMessage = `HTTP ${response.status}: ${errorData.message}`
       }
       console.error(`[Kiro API] Error:`, errorData)
     } catch {
-      // 濡傛灉 CBOR 瑙ｆ瀽澶辫触锛屾樉绀哄師濮嬪唴瀹?      const errorText = Buffer.from(errorBuffer).toString('utf-8')
+      // 如果 CBOR 解析失败，显示原始内容
+      const errorText = Buffer.from(errorBuffer).toString('utf-8')
       console.error(`[Kiro API] Error (raw): ${errorText}`)
     }
     throw new Error(errorMessage)
@@ -915,15 +938,17 @@ async function kiroApiRequest<T>(
 
   const arrayBuffer = await response.arrayBuffer()
   const result = decode(Buffer.from(arrayBuffer)) as T
-  // 绮剧畝鍝嶅簲鏃ュ織锛氫竴琛屾憳瑕?+ 瀹屾暣鏁版嵁鏀?data锛堚摌 灞曞紑锛?  const r = result as Record<string, unknown>
+  // 精简响应日志：一行摘要 + 完整数据放 data（ⓘ 展开）
+  const r = result as Record<string, unknown>
   const resSummary = r.email ? `${r.email} [${r.status || 'ok'}]` : `${response.status}`
-  console.log(`[Kiro API] ${operation} [${logTag}] 鈫?${resSummary}`, result)
+  console.log(`[Kiro API] ${operation} [${logTag}] → ${resSummary}`, result)
   return result
 }
 
-// ============ GetUsageLimits REST API (瀹樻柟鏍煎紡) ============
+// ============ GetUsageLimits REST API (官方格式) ============
 interface UsageLimitsResponse {
-  // REST API 瀹為檯杩斿洖 usageBreakdownList锛堜笉鏄?usageBreakdowns锛?  usageBreakdownList?: Array<{
+  // REST API 实际返回 usageBreakdownList（不是 usageBreakdowns）
+  usageBreakdownList?: Array<{
     type?: string
     resourceType?: string
     displayName?: string
@@ -946,7 +971,8 @@ interface UsageLimitsResponse {
       freeTrialStatus?: string
       freeTrialExpiry?: string
     }
-    // REST API 鐩存帴杩斿洖 freeTrialInfo锛堜笌 freeTrialUsage 缁撴瀯鐩稿悓锛?    freeTrialInfo?: {
+    // REST API 直接返回 freeTrialInfo（与 freeTrialUsage 结构相同）
+    freeTrialInfo?: {
       currentUsage?: number
       currentUsageWithPrecision?: number
       usageLimit?: number
@@ -962,11 +988,13 @@ interface UsageLimitsResponse {
       usageLimitWithPrecision?: number
       currentUsage?: number
       currentUsageWithPrecision?: number
-      expiresAt?: number | string  // REST API 杩斿洖鏁板瓧鏃堕棿鎴?      redeemedAt?: number | string
+      expiresAt?: number | string  // REST API 返回数字时间戳
+      redeemedAt?: number | string
       status?: string
     }>
   }>
-  nextDateReset?: number | string  // Unix 鏃堕棿鎴筹紙绉掞級鎴?ISO 瀛楃涓?  subscriptionInfo?: {
+  nextDateReset?: number | string  // Unix 时间戳（秒）或 ISO 字符串
+  subscriptionInfo?: {
     subscriptionName?: string
     subscriptionTitle?: string
     subscriptionType?: string
@@ -988,10 +1016,11 @@ interface UsageLimitsResponse {
   }
 }
 
-// 杈呭姪鍑芥暟锛氬皢 Unix 鏃堕棿鎴筹紙绉掞級鎴?ISO 瀛楃涓茶浆鎹负 ISO 瀛楃涓?function normalizeResetDate(value: number | string | undefined): string | undefined {
+// 辅助函数：将 Unix 时间戳（秒）或 ISO 字符串转换为 ISO 字符串
+function normalizeResetDate(value: number | string | undefined): string | undefined {
   if (value === undefined || value === null) return undefined
   if (typeof value === 'number') {
-    // Unix 鏃堕棿鎴筹紙绉掞級锛岃浆鎹负姣鍚庡垱寤?Date
+    // Unix 时间戳（秒），转换为毫秒后创建 Date
     return new Date(value * 1000).toISOString()
   }
   return value
@@ -1024,11 +1053,11 @@ async function fetchRestApi(
 async function getUsageLimitsRest(
   accessToken: string,
   profileArn?: string,
-  accountMachineId?: string,  // 璐︽埛缁戝畾鐨勮澶?ID
-  ssoRegion?: string,         // SSO 鍖哄煙锛岀敤浜庨€夋嫨姝ｇ‘鐨?REST API 绔偣
-  email?: string              // 鐢ㄤ簬鏃ュ織鏍囪瘑
+  accountMachineId?: string,  // 账户绑定的设备 ID
+  ssoRegion?: string,         // SSO 区域，用于选择正确的 REST API 端点
+  email?: string              // 用于日志标识
 ): Promise<UsageLimitsResponse> {
-  // 浼樺厛浣跨敤璐︽埛缁戝畾鐨勮澶?ID锛屽叾娆′娇鐢?K-Proxy 鍏ㄥ眬璁惧 ID
+  // 优先使用账户绑定的设备 ID，其次使用 K-Proxy 全局设备 ID
   const machineId = accountMachineId || getCurrentMachineId()
   const logTag = email || `token:${accessToken?.slice(-6) || '?'}`
   console.log(`[Kiro REST API] GetUsageLimits [${logTag}] region=${ssoRegion || 'default'}`)
@@ -1043,13 +1072,15 @@ async function getUsageLimitsRest(
   }
   const path = `/getUsageLimits?${params.toString()}`
   
-  // 鏍规嵁 SSO 鍖哄煙閫夋嫨涓荤鐐?  const primaryBase = getRestApiBase(ssoRegion)
+  // 根据 SSO 区域选择主端点
+  const primaryBase = getRestApiBase(ssoRegion)
   const fallbackBase = getFallbackRestApiBase(ssoRegion)
   
   let response = await fetchRestApi(primaryBase, path, accessToken, machineId)
   
-  // 濡傛灉涓荤鐐硅繑鍥?403锛屽皾璇曞鐢ㄧ鐐?  if (response.status === 403) {
-    console.log(`[Kiro REST API] Primary 403, fallback 鈫?${fallbackBase}`)
+  // 如果主端点返回 403，尝试备用端点
+  if (response.status === 403) {
+    console.log(`[Kiro REST API] Primary 403, fallback → ${fallbackBase}`)
     response = await fetchRestApi(fallbackBase, path, accessToken, machineId)
   }
   
@@ -1060,11 +1091,11 @@ async function getUsageLimitsRest(
   }
   
   const result = await response.json()
-  console.log(`[Kiro REST API] GetUsageLimits [${logTag}] 鈫?${response.status}`, result)
+  console.log(`[Kiro REST API] GetUsageLimits [${logTag}] → ${response.status}`, result)
   return result
 }
 
-// 缁熶竴鐨勭敤閲忔煡璇㈡帴鍙?- 鏍规嵁閰嶇疆閫夋嫨 API 绫诲瀷
+// 统一的用量查询接口 - 根据配置选择 API 类型
 interface UnifiedUsageResponse {
   usageBreakdownList?: Array<{
     resourceType?: string
@@ -1123,14 +1154,15 @@ async function getUsageAndLimits(
   accessToken: string,
   idp: string = 'BuilderId',
   profileArn?: string,
-  accountMachineId?: string,  // 璐︽埛缁戝畾鐨勮澶?ID
-  ssoRegion?: string,         // SSO 鍖哄煙锛岀敤浜庨€夋嫨姝ｇ‘鐨?REST API 绔偣
-  email?: string              // 鐢ㄤ簬鏃ュ織鏍囪瘑
+  accountMachineId?: string,  // 账户绑定的设备 ID
+  ssoRegion?: string,         // SSO 区域，用于选择正确的 REST API 端点
+  email?: string              // 用于日志标识
 ): Promise<UnifiedUsageResponse> {
   if (currentUsageApiType === 'rest') {
-    // 浣跨敤 REST API (GetUsageLimits)
+    // 使用 REST API (GetUsageLimits)
     const result = await getUsageLimitsRest(accessToken, profileArn, accountMachineId, ssoRegion, email)
-    // REST API 杩斿洖鐨勫瓧娈靛悕鍜?CBOR API 鐩稿悓锛岀洿鎺ヨ繑鍥?    return {
+    // REST API 返回的字段名和 CBOR API 相同，直接返回
+    return {
       usageBreakdownList: result.usageBreakdownList?.map(b => ({
         resourceType: b.resourceType || b.type,
         displayName: b.displayName,
@@ -1144,14 +1176,15 @@ async function getUsageAndLimits(
         overageRate: b.overageRate,
         overageCap: b.overageCap,
         type: b.type,
-        // REST API 鐩存帴杩斿洖 freeTrialInfo锛孋BOR API 杩斿洖 freeTrialUsage
+        // REST API 直接返回 freeTrialInfo，CBOR API 返回 freeTrialUsage
         freeTrialInfo: b.freeTrialInfo ? {
           freeTrialStatus: b.freeTrialInfo.freeTrialStatus,
           usageLimit: b.freeTrialInfo.usageLimit,
           usageLimitWithPrecision: b.freeTrialInfo.usageLimitWithPrecision,
           currentUsage: b.freeTrialInfo.currentUsage,
           currentUsageWithPrecision: b.freeTrialInfo.currentUsageWithPrecision,
-          // REST API 杩斿洖鏁板瓧鏃堕棿鎴筹紝闇€瑕佽浆鎹负 ISO 瀛楃涓?          freeTrialExpiry: typeof b.freeTrialInfo.freeTrialExpiry === 'number' 
+          // REST API 返回数字时间戳，需要转换为 ISO 字符串
+          freeTrialExpiry: typeof b.freeTrialInfo.freeTrialExpiry === 'number' 
             ? new Date(b.freeTrialInfo.freeTrialExpiry * 1000).toISOString() 
             : b.freeTrialInfo.freeTrialExpiry
         } : (b.freeTrialUsage ? {
@@ -1162,22 +1195,24 @@ async function getUsageAndLimits(
           currentUsageWithPrecision: b.freeTrialUsage.currentUsageWithPrecision,
           freeTrialExpiry: b.freeTrialUsage.freeTrialExpiry
         } : undefined),
-        // 杞崲 bonuses 涓殑鏃堕棿鎴充负 ISO 瀛楃涓?        bonuses: b.bonuses?.map(bonus => ({
+        // 转换 bonuses 中的时间戳为 ISO 字符串
+        bonuses: b.bonuses?.map(bonus => ({
           ...bonus,
           expiresAt: typeof bonus.expiresAt === 'number' 
             ? new Date(bonus.expiresAt * 1000).toISOString() 
             : bonus.expiresAt
         }))
       })),
-      // REST API 杩斿洖鐨?nextDateReset 鏄?Unix 鏃堕棿鎴筹紙绉掞級锛岄渶瑕佽浆鎹负 ISO 瀛楃涓?      nextDateReset: normalizeResetDate(result.nextDateReset),
+      // REST API 返回的 nextDateReset 是 Unix 时间戳（秒），需要转换为 ISO 字符串
+      nextDateReset: normalizeResetDate(result.nextDateReset),
       subscriptionInfo: result.subscriptionInfo,
       overageConfiguration: result.overageConfiguration,
       userInfo: result.userInfo
     }
   } else {
-    // 浣跨敤 CBOR API (GetUserUsageAndLimits)
-    // CBOR API (app.kiro.dev) 鏄綉椤电闂ㄦ埛锛屼粎鏀寔 BuilderId 璁よ瘉
-    // Enterprise/IdC 璐﹀彿鍙兘杩斿洖 401锛岄渶瑕?fallback 鍒?REST API
+    // 使用 CBOR API (GetUserUsageAndLimits)
+    // CBOR API (app.kiro.dev) 是网页端门户，仅支持 BuilderId 认证
+    // Enterprise/IdC 账号可能返回 401，需要 fallback 到 REST API
     try {
       return await kiroApiRequest<UnifiedUsageResponse>(
         'GetUserUsageAndLimits',
@@ -1189,7 +1224,7 @@ async function getUsageAndLimits(
       )
     } catch (cborError) {
       const errorMsg = cborError instanceof Error ? cborError.message : ''
-      // CBOR 401/403 鏃惰嚜鍔?fallback 鍒?REST API
+      // CBOR 401/403 时自动 fallback 到 REST API
       if (errorMsg.includes('401') || errorMsg.includes('403')) {
         console.log(`[API] CBOR API failed (${errorMsg}), falling back to REST API...`)
         const result = await getUsageLimitsRest(accessToken, profileArn, accountMachineId, ssoRegion, email)
@@ -1242,7 +1277,7 @@ async function getUsageAndLimits(
   }
 }
 
-// GetUserInfo API - 鍙渶瑕?accessToken 鍗冲彲璋冪敤
+// GetUserInfo API - 只需要 accessToken 即可调用
 interface UserInfoResponse {
   email?: string
   userId?: string
@@ -1255,15 +1290,18 @@ async function getUserInfo(accessToken: string, idp: string = 'BuilderId', accou
   return kiroApiRequest<UserInfoResponse>('GetUserInfo', { origin: 'KIRO_IDE' }, accessToken, idp, accountMachineId, email)
 }
 
-// 瀹氫箟鑷畾涔夊崗璁?const PROTOCOL_PREFIX = 'kiro'
+// 定义自定义协议
+const PROTOCOL_PREFIX = 'kiro'
+let protocolClientPath = process.execPath
 
-// electron-store 瀹炰緥锛堝欢杩熷垵濮嬪寲锛?let store: {
+// electron-store 实例（延迟初始化）
+let store: {
   get: (key: string, defaultValue?: unknown) => unknown
   set: (key: string, value: unknown) => void
   path: string
 } | null = null
 
-// 鏈€鍚庝繚瀛樼殑鏁版嵁锛堢敤浜庡穿婧冩仮澶嶏級
+// 最后保存的数据（用于崩溃恢复）
 let lastSavedData: unknown = null
 
 async function initStore(): Promise<void> {
@@ -1279,13 +1317,14 @@ async function initStore(): Promise<void> {
   
   store = storeInstance as unknown as typeof store
   
-  // 灏濊瘯浠庡浠芥仮澶嶆暟鎹紙濡傛灉涓绘暟鎹崯鍧忥級
+  // 尝试从备份恢复数据（如果主数据损坏）
   try {
     const backupPath = path.join(path.dirname(storeInstance.path), 'kiro-accounts.backup.json')
     const mainData = storeInstance.get('accountData')
     
     if (!mainData) {
-      // 涓绘暟鎹笉瀛樺湪鎴栨崯鍧忥紝灏濊瘯浠庡浠芥仮澶?      try {
+      // 主数据不存在或损坏，尝试从备份恢复
+      try {
         const backupContent = await fs.readFile(backupPath, 'utf-8')
         const backupData = JSON.parse(backupContent)
         if (backupData && backupData.accounts) {
@@ -1294,14 +1333,15 @@ async function initStore(): Promise<void> {
           console.log('[Store] Data restored from backup successfully')
         }
       } catch {
-        // 澶囦唤涔熶笉瀛樺湪锛屽拷鐣?      }
+        // 备份也不存在，忽略
+      }
     }
   } catch (error) {
     console.error('[Store] Error checking backup:', error)
   }
 }
 
-// 鍒涘缓鏁版嵁澶囦唤
+// 创建数据备份
 async function createBackup(data: unknown): Promise<void> {
   if (!store) return
   
@@ -1319,13 +1359,15 @@ async function createBackup(data: unknown): Promise<void> {
 
 let mainWindow: BrowserWindow | null = null
 
-// ============ 鎵樼洏鐩稿叧鍙橀噺 ============
+// ============ 托盘相关变量 ============
 let traySettings: TraySettings = { ...defaultTraySettings }
-let isQuitting = false // 鏍囪鏄惁鐪熸閫€鍑哄簲鐢?
-// ============ 鍏ㄥ眬蹇嵎閿缃?============
+let isQuitting = false // 标记是否真正退出应用
+
+// ============ 全局快捷键设置 ============
 let showWindowShortcut = process.platform === 'darwin' ? 'Command+Shift+K' : 'Ctrl+Shift+K'
 
-// 鍔犺浇蹇嵎閿缃?async function loadShortcutSettings(): Promise<void> {
+// 加载快捷键设置
+async function loadShortcutSettings(): Promise<void> {
   try {
     await initStore()
     const saved = store?.get('showWindowShortcut') as string | undefined
@@ -1337,7 +1379,8 @@ let showWindowShortcut = process.platform === 'darwin' ? 'Command+Shift+K' : 'Ct
   }
 }
 
-// 淇濆瓨蹇嵎閿缃?async function saveShortcutSettings(): Promise<void> {
+// 保存快捷键设置
+async function saveShortcutSettings(): Promise<void> {
   try {
     await initStore()
     store?.set('showWindowShortcut', showWindowShortcut)
@@ -1346,8 +1389,9 @@ let showWindowShortcut = process.platform === 'darwin' ? 'Command+Shift+K' : 'Ct
   }
 }
 
-// 娉ㄥ唽鏄剧ず涓荤獥鍙ｇ殑蹇嵎閿?function registerShowWindowShortcut(): void {
-  // 鍏堟敞閿€鎵€鏈夊凡娉ㄥ唽鐨勫揩鎹烽敭
+// 注册显示主窗口的快捷键
+function registerShowWindowShortcut(): void {
+  // 先注销所有已注册的快捷键
   globalShortcut.unregisterAll()
   
   if (!showWindowShortcut) return
@@ -1355,7 +1399,7 @@ let showWindowShortcut = process.platform === 'darwin' ? 'Command+Shift+K' : 'Ct
   try {
     const success = globalShortcut.register(showWindowShortcut, () => {
       if (mainWindow) {
-        // macOS: 鏄剧ず绐楀彛鏃舵仮澶?Dock 鍥炬爣
+        // macOS: 显示窗口时恢复 Dock 图标
         if (process.platform === 'darwin' && app.dock) {
           app.dock.show()
         }
@@ -1376,7 +1420,7 @@ let showWindowShortcut = process.platform === 'darwin' ? 'Command+Shift+K' : 'Ct
 let currentProxyAccount: { id: string; email: string; idp: string; status: string; subscription?: string; usage?: { usedCredits: number; totalCredits: number; totalRequests: number; successRequests: number; failedRequests: number } } | null = null
 let allAccounts: { id: string; email: string; idp: string; status: string }[] = []
 
-// 鍔犺浇鎵樼洏璁剧疆
+// 加载托盘设置
 async function loadTraySettings(): Promise<void> {
   try {
     await initStore()
@@ -1389,7 +1433,7 @@ async function loadTraySettings(): Promise<void> {
   }
 }
 
-// 淇濆瓨鎵樼洏璁剧疆
+// 保存托盘设置
 async function saveTraySettings(): Promise<void> {
   try {
     await initStore()
@@ -1399,13 +1443,14 @@ async function saveTraySettings(): Promise<void> {
   }
 }
 
-// 鍒濆鍖栨墭鐩?function initTray(): void {
+// 初始化托盘
+function initTray(): void {
   if (!traySettings.enabled) return
 
   createTray({
     onShowWindow: () => {
       if (mainWindow) {
-        // macOS: 鏄剧ず绐楀彛鏃舵仮澶?Dock 鍥炬爣
+        // macOS: 显示窗口时恢复 Dock 图标
         if (process.platform === 'darwin' && app.dock) {
           app.dock.show()
         }
@@ -1459,27 +1504,28 @@ async function saveTraySettings(): Promise<void> {
     }
   })
 
-  // 璁剧疆鍒濆鎻愮ず
-  setTrayTooltip(`Kiro 璐﹀彿绠＄悊鍣?v${app.getVersion()}`)
+  // 设置初始提示
+  setTrayTooltip(`Kiro 账号管理器 v${app.getVersion()}`)
 }
 
 function createWindow(): void {
   // Create the browser window.
   const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
-    title: `Kiro 璐﹀彿绠＄悊鍣?v${app.getVersion()}`,
-    width: 1280,   // 鍒氬ソ瀹圭撼 3 鍒楀崱鐗?(340*3 + 16*2 + 杈硅窛)
+    title: `Kiro 账号管理器 v${app.getVersion()}`,
+    width: 1280,   // 刚好容纳 3 列卡片 (340*3 + 16*2 + 边距)
     height: 800,
     minWidth: 800,
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
     icon,
-    // 鑷畾涔?titlebar锛歮ac 淇濈暀绾㈢豢榛勭伅 + 闅愯棌鏍囬鏍忥紱win/linux 瀹屽叏鏃?frame
+    // 自定义 titlebar：mac 保留红绿黄灯 + 隐藏标题栏；win/linux 完全无 frame
     frame: isMac,
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     trafficLightPosition: isMac ? { x: 14, y: 12 } : undefined,
-    // 涓嶉€忔槑绐楀彛锛堝叧闂€忔槑 + Mica/Vibrancy 閬垮厤妗岄潰鍏冪礌骞叉壈锛?    webPreferences: {
+    // 不透明窗口（关闭透明 + Mica/Vibrancy 避免桌面元素干扰）
+    webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
@@ -1487,15 +1533,16 @@ function createWindow(): void {
     }
   })
 
-  // ============ 鑷畾涔?titlebar IPC ============
+  // ============ 自定义 titlebar IPC ============
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window-maximize-changed', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window-maximize-changed', false))
 
   mainWindow.on('ready-to-show', () => {
-    // 璁剧疆甯︾増鏈彿鐨勬爣棰橈紙HTML 鍔犺浇鍚庝細瑕嗙洊鍒濆鏍囬锛?    mainWindow?.setTitle(`Kiro 璐﹀彿绠＄悊鍣?v${app.getVersion()}`)
+    // 设置带版本号的标题（HTML 加载后会覆盖初始标题）
+    mainWindow?.setTitle(`Kiro 账号管理器 v${app.getVersion()}`)
     mainWindow?.show()
     
-    // 妫€鏌ヤ唬鐞嗘湇鍔¤嚜鍚姩閰嶇疆
+    // 检查代理服务自启动配置
     setTimeout(async () => {
       try {
         await initStore()
@@ -1508,7 +1555,7 @@ function createWindow(): void {
         const server = initProxyServer()
         server.updateConfig(savedProxyConfig)
         
-        // 鑷惎鍔ㄦ椂鍚屾璐﹀彿鍒颁唬鐞嗘睜锛堝惈閲嶈瘯鏈哄埗搴斿鍐峰惎鍔ㄦ暟鎹欢杩燂級
+        // 自启动时同步账号到代理池（含重试机制应对冷启动数据延迟）
         const syncAccountsToPool = (): number => {
           const accountData = store!.get('accountData') as { accounts?: Record<string, any> } | undefined
           if (!accountData?.accounts) return 0
@@ -1540,7 +1587,8 @@ function createWindow(): void {
         if (syncedCount > 0) {
           console.log('[ProxyServer] Auto-synced', syncedCount, 'accounts')
         } else {
-          // 鍐峰惎鍔ㄦ椂 store 鍙兘杩樻病鏈夋暟鎹紙娓叉煋杩涚▼灏氭湭鍒濆鍖栧畬鎴愶級锛屽欢杩熼噸璇?          console.log('[ProxyServer] No accounts found on initial sync, will retry...')
+          // 冷启动时 store 可能还没有数据（渲染进程尚未初始化完成），延迟重试
+          console.log('[ProxyServer] No accounts found on initial sync, will retry...')
           const retrySync = (attempt: number) => {
             setTimeout(() => {
               const count = syncAccountsToPool()
@@ -1562,7 +1610,8 @@ function createWindow(): void {
         console.error('[ProxyServer] Auto-start failed:', error)
       }
 
-      // K-Proxy MITM 鑷惎鍔?      try {
+      // K-Proxy MITM 自启动
+      try {
         const savedKProxyConfig = store?.get('kproxyConfig') as KProxyConfig | undefined
         if (savedKProxyConfig?.autoStart) {
           console.log('[KProxy] Auto-starting K-Proxy MITM...')
@@ -1595,29 +1644,33 @@ function createWindow(): void {
   })
 
   mainWindow.on('close', (event) => {
-    // 鎵樼洏鏈€灏忓寲閫昏緫 - 蹇呴』鍚屾妫€鏌ュ苟璋冪敤 preventDefault
+    // 托盘最小化逻辑 - 必须同步检查并调用 preventDefault
     if (traySettings.enabled && !isQuitting) {
       if (traySettings.closeAction === 'minimize') {
-        // 鐩存帴鏈€灏忓寲鍒版墭鐩?        event.preventDefault()
+        // 直接最小化到托盘
+        event.preventDefault()
         mainWindow?.hide()
-        // macOS: 闅愯棌绐楀彛鏃堕殣钘?Dock 鍥炬爣
+        // macOS: 隐藏窗口时隐藏 Dock 图标
         if (process.platform === 'darwin' && app.dock) {
           app.dock.hide()
         }
         return
       } else if (traySettings.closeAction === 'ask' && mainWindow) {
-        // 璇㈤棶鐢ㄦ埛 - 鍏堥樆姝㈠叧闂紝鍐嶅紓姝ュ鐞?        event.preventDefault()
-        // 閫氱煡娓叉煋杩涚▼鏄剧ず鑷畾涔夊璇濇
+        // 询问用户 - 先阻止关闭，再异步处理
+        event.preventDefault()
+        // 通知渲染进程显示自定义对话框
         mainWindow.webContents.send('show-close-confirm-dialog')
         return
       }
-      // closeAction === 'quit' 鏃剁户缁叧闂祦绋?    }
+      // closeAction === 'quit' 时继续关闭流程
+    }
 
-    // 绐楀彛鍏抽棴鍓嶄繚瀛樻暟鎹紙鍚屾淇濆瓨锛屼笉绛夊緟澶囦唤锛?    if (lastSavedData && store) {
+    // 窗口关闭前保存数据（同步保存，不等待备份）
+    if (lastSavedData && store) {
       try {
         console.log('[Window] Saving data before close...')
         store.set('accountData', lastSavedData)
-        // 澶囦唤寮傛杩涜锛屼笉闃诲鍏抽棴
+        // 备份异步进行，不阻塞关闭
         createBackup(lastSavedData).then(() => {
           console.log('[Window] Backup created')
         }).catch(err => {
@@ -1648,36 +1701,38 @@ function createWindow(): void {
   }
 }
 
-// 娉ㄥ唽鑷畾涔夊崗璁?function registerProtocol(): void {
-  // 鍏堟敞閿€鏃х殑娉ㄥ唽锛堥槻姝笂娆″紓甯搁€€鍑烘湭娉ㄩ攢锛?  unregisterProtocol()
+// 注册自定义协议
+function registerProtocol(): void {
+  // 先注销旧的注册（防止上次异常退出未注销）
+  unregisterProtocol()
   
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient(PROTOCOL_PREFIX, process.execPath, [
+      app.setAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [
         join(process.argv[1])
       ])
     }
   } else {
-    app.setAsDefaultProtocolClient(PROTOCOL_PREFIX)
+    app.setAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [])
   }
   console.log(`[Protocol] Registered ${PROTOCOL_PREFIX}:// protocol`)
 }
 
-// 娉ㄩ攢鑷畾涔夊崗璁?(搴旂敤閫€鍑烘椂璋冪敤)
+// 注销自定义协议 (应用退出时调用)
 function unregisterProtocol(): void {
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
-      app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX, process.execPath, [
+      app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [
         join(process.argv[1])
       ])
     }
   } else {
-    app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX)
+    app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [])
   }
   console.log(`[Protocol] Unregistered ${PROTOCOL_PREFIX}:// protocol`)
 }
 
-// 澶勭悊鍗忚 URL (鐢ㄤ簬 OAuth 鍥炶皟)
+// 处理协议 URL (用于 OAuth 回调)
 function handleProtocolUrl(url: string): void {
   if (!url.startsWith(`${PROTOCOL_PREFIX}://`)) return
 
@@ -1685,7 +1740,7 @@ function handleProtocolUrl(url: string): void {
     const urlObj = new URL(url)
     const pathname = urlObj.pathname.replace(/^\/+/, '')
 
-    // 澶勭悊 auth 鍥炶皟
+    // 处理 auth 回调
     if (pathname === 'auth/callback' || urlObj.host === 'auth') {
       const code = urlObj.searchParams.get('code')
       const state = urlObj.searchParams.get('state')
@@ -1704,21 +1759,24 @@ function handleProtocolUrl(url: string): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
-  // 鍒濆鍖栨棩蹇楃郴缁燂紙灏芥棭鎷︽埅锛岀‘淇濇墍鏈?console 杈撳嚭閮借繘鍏ユ棩蹇楀瓨鍌級
+  // 初始化日志系统（尽早拦截，确保所有 console 输出都进入日志存储）
   proxyLogStore.initialize(app.getPath('userData'))
   interceptConsole()
 
-  // 娉ㄥ唽鑷畾涔夊崗璁?  registerProtocol()
+  // 注册自定义协议
+  registerProtocol()
 
-  // 鍔犺浇鎵樼洏璁剧疆骞跺垵濮嬪寲鎵樼洏
+  // 加载托盘设置并初始化托盘
   await loadTraySettings()
+  protocolClientPath = (store?.get('protocolClientPath') as string | undefined) || process.execPath
   autoUpdateOnStartup = (store?.get('autoUpdateOnStartup') as boolean | undefined) ?? AUTO_UPDATE_ON_STARTUP
   initTray()
 
-  // 鍒濆鍖栬嚜鍔ㄦ洿鏂帮紙浠呯敓浜х幆澧冿級
+  // 初始化自动更新（仅生产环境）
   if (!is.dev) {
     setupAutoUpdater()
-    // 鍚姩鍚庡欢杩熸鏌ユ洿鏂?    setTimeout(() => {
+    // 启动后延迟检查更新
+    setTimeout(() => {
       autoUpdater.checkForUpdates().catch(console.error)
     }, 3000)
   }
@@ -1733,7 +1791,7 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC: 鎵撳紑澶栭儴閾炬帴
+  // IPC: 打开外部链接
   ipcMain.on('open-external', (_event, url: string, usePrivateMode?: boolean) => {
     if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
       if (usePrivateMode) {
@@ -1744,17 +1802,17 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ============ 娉ㄥ唽鍔熻兘 IPC ============
+  // ============ 注册功能 IPC ============
   registerRegistrationHandlers(() => mainWindow)
 
-  // ============ 鎵樼洏鐩稿叧 IPC ============
+  // ============ 托盘相关 IPC ============
 
-  // IPC: 鑾峰彇鎵樼洏璁剧疆
+  // IPC: 获取托盘设置
   ipcMain.handle('get-tray-settings', () => {
     return traySettings
   })
 
-  // ============ 鑷畾涔?titlebar IPC ============
+  // ============ 自定义 titlebar IPC ============
   ipcMain.on('window-minimize', () => mainWindow?.minimize())
   ipcMain.on('window-maximize-toggle', () => {
     if (!mainWindow) return
@@ -1765,17 +1823,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('window-is-maximized', () => !!mainWindow?.isMaximized())
   ipcMain.handle('window-get-platform', () => process.platform)
 
-  // IPC: 鑾峰彇鏄剧ず涓荤獥鍙ｅ揩鎹烽敭
+  // IPC: 获取显示主窗口快捷键
   ipcMain.handle('get-show-window-shortcut', () => {
     return showWindowShortcut
   })
 
-  // IPC: 获取自动更新启动检查开关
+  // IPC: ????????????
   ipcMain.handle('get-auto-update-on-startup', () => {
     return autoUpdateOnStartup
   })
 
-  // IPC: 设置自动更新启动检查开关
+  // IPC: ????????????
   ipcMain.handle('set-auto-update-on-startup', async (_event, enabled: boolean) => {
     try {
       autoUpdateOnStartup = !!enabled
@@ -1786,7 +1844,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 璁剧疆鏄剧ず涓荤獥鍙ｅ揩鎹烽敭
+  // IPC: 设置显示主窗口快捷键
   ipcMain.handle('set-show-window-shortcut', async (_event, shortcut: string) => {
     try {
       showWindowShortcut = shortcut
@@ -1798,13 +1856,43 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 淇濆瓨鎵樼洏璁剧疆
+  ipcMain.handle('get-protocol-client-path', () => {
+    return {
+      currentPath: protocolClientPath || process.execPath,
+      defaultPath: process.execPath
+    }
+  })
+
+  ipcMain.handle('set-protocol-client-path', async (_event, targetPath: string) => {
+    try {
+      const next = (targetPath || '').trim() || process.execPath
+      protocolClientPath = next
+      store?.set('protocolClientPath', protocolClientPath)
+      registerProtocol()
+      return { success: true, currentPath: protocolClientPath, defaultPath: process.execPath }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  ipcMain.handle('reset-protocol-client-path', async () => {
+    try {
+      protocolClientPath = process.execPath
+      store?.set('protocolClientPath', protocolClientPath)
+      registerProtocol()
+      return { success: true, currentPath: protocolClientPath, defaultPath: process.execPath }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  // IPC: 保存托盘设置
   ipcMain.handle('save-tray-settings', async (_event, settings: Partial<TraySettings>) => {
     try {
       traySettings = { ...traySettings, ...settings }
       await saveTraySettings()
       
-      // 鏍规嵁璁剧疆鍚敤/绂佺敤鎵樼洏
+      // 根据设置启用/禁用托盘
       if (settings.enabled !== undefined) {
         if (settings.enabled) {
           initTray()
@@ -1820,42 +1908,45 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鏇存柊鎵樼洏璐︽埛淇℃伅锛堜粠娓叉煋杩涚▼璋冪敤锛?  ipcMain.on('update-tray-account', (_event, account: typeof currentProxyAccount) => {
+  // IPC: 更新托盘账户信息（从渲染进程调用）
+  ipcMain.on('update-tray-account', (_event, account: typeof currentProxyAccount) => {
     currentProxyAccount = account
     updateCurrentAccount(account)
     
-    // 鏇存柊鎵樼洏鎻愮ず
+    // 更新托盘提示
     if (account) {
-      setTrayTooltip(`Kiro 璐﹀彿绠＄悊鍣╘n褰撳墠璐︽埛: ${account.email}`)
+      setTrayTooltip(`Kiro 账号管理器\n当前账户: ${account.email}`)
     } else {
-      setTrayTooltip(`Kiro 璐﹀彿绠＄悊鍣?v${app.getVersion()}`)
+      setTrayTooltip(`Kiro 账号管理器 v${app.getVersion()}`)
     }
   })
 
-  // IPC: 鏇存柊鎵樼洏璐︽埛鍒楄〃锛堜粠娓叉煋杩涚▼璋冪敤锛?  ipcMain.on('update-tray-account-list', (_event, accounts: typeof allAccounts) => {
+  // IPC: 更新托盘账户列表（从渲染进程调用）
+  ipcMain.on('update-tray-account-list', (_event, accounts: typeof allAccounts) => {
     allAccounts = accounts
     updateAccountList(accounts)
   })
 
-  // IPC: 鍒锋柊鎵樼洏鑿滃崟
+  // IPC: 刷新托盘菜单
   ipcMain.on('refresh-tray-menu', () => {
     updateTrayMenu()
   })
 
-  // IPC: 鏇存柊鎵樼洏璇█
+  // IPC: 更新托盘语言
   ipcMain.on('update-tray-language', (_event, language: 'en' | 'zh') => {
     updateTrayLanguage(language)
   })
 
-  // IPC: 鍏抽棴纭瀵硅瘽妗嗗搷搴?  ipcMain.on('close-confirm-response', (_event, action: 'minimize' | 'quit' | 'cancel', rememberChoice: boolean) => {
+  // IPC: 关闭确认对话框响应
+  ipcMain.on('close-confirm-response', (_event, action: 'minimize' | 'quit' | 'cancel', rememberChoice: boolean) => {
     if (action === 'minimize') {
       mainWindow?.hide()
-      // macOS: 闅愯棌绐楀彛鏃堕殣钘?Dock 鍥炬爣
+      // macOS: 隐藏窗口时隐藏 Dock 图标
       if (process.platform === 'darwin' && app.dock) {
         app.dock.hide()
       }
     } else if (action === 'quit') {
-      // 濡傛灉鐢ㄦ埛閫夋嫨璁颁綇閫夋嫨
+      // 如果用户选择记住选择
       if (rememberChoice) {
         traySettings.closeAction = 'quit'
         saveTraySettings()
@@ -1863,22 +1954,24 @@ app.whenReady().then(async () => {
       isQuitting = true
       app.quit()
     }
-    // cancel 鏃朵笉鍋氫换浣曟搷浣?    
-    // 濡傛灉鐢ㄦ埛閫夋嫨璁颁綇"鏈€灏忓寲"閫夋嫨
+    // cancel 时不做任何操作
+    
+    // 如果用户选择记住"最小化"选择
     if (action === 'minimize' && rememberChoice) {
       traySettings.closeAction = 'minimize'
       saveTraySettings()
     }
   })
 
-  // IPC: 鑾峰彇搴旂敤鐗堟湰
+  // IPC: 获取应用版本
   ipcMain.handle('get-app-version', () => {
     return app.getVersion()
   })
 
-  // IPC: 妫€鏌ユ洿鏂?  ipcMain.handle('check-for-updates', async () => {
+  // IPC: 检查更新
+  ipcMain.handle('check-for-updates', async () => {
     if (is.dev) {
-      return { hasUpdate: false, message: '寮€鍙戠幆澧冧笉鏀寔鏇存柊妫€鏌? }
+      return { hasUpdate: false, message: '开发环境不支持更新检查' }
     }
     try {
       const result = await autoUpdater.checkForUpdates()
@@ -1893,10 +1986,10 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 涓嬭浇鏇存柊
+  // IPC: 下载更新
   ipcMain.handle('download-update', async () => {
     if (is.dev) {
-      return { success: false, message: '寮€鍙戠幆澧冧笉鏀寔鏇存柊' }
+      return { success: false, message: '开发环境不支持更新' }
     }
     try {
       await autoUpdater.downloadUpdate()
@@ -1907,11 +2000,13 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 瀹夎鏇存柊骞堕噸鍚?  ipcMain.handle('install-update', () => {
+  // IPC: 安装更新并重启
+  ipcMain.handle('install-update', () => {
     autoUpdater.quitAndInstall(false, true)
   })
 
-  // IPC: 鎵嬪姩妫€鏌ユ洿鏂帮紙浣跨敤 GitHub API锛岀敤浜?AboutPage锛?  const GITHUB_REPO = 'chaogei/Kiro-account-manager'
+  // IPC: 手动检查更新（使用 GitHub API，用于 AboutPage）
+  const GITHUB_REPO = 'chaogei/Kiro-account-manager'
   const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
   
   ipcMain.handle('check-for-updates-manual', async () => {
@@ -1928,11 +2023,11 @@ app.whenReady().then(async () => {
       
       if (!response.ok) {
         if (response.status === 403) {
-          throw new Error('GitHub API 璇锋眰娆℃暟瓒呴檺锛岃绋嶅悗鍐嶈瘯')
+          throw new Error('GitHub API 请求次数超限，请稍后再试')
         } else if (response.status === 404) {
-          throw new Error('鏈壘鍒板彂甯冪増鏈?)
+          throw new Error('未找到发布版本')
         }
-        throw new Error(`GitHub API 閿欒: ${response.status}`)
+        throw new Error(`GitHub API 错误: ${response.status}`)
       }
       
       const release = await response.json() as {
@@ -1950,7 +2045,8 @@ app.whenReady().then(async () => {
       
       const latestVersion = release.tag_name.replace(/^v/, '')
       
-      // 姣旇緝鐗堟湰鍙?      const compareVersions = (v1: string, v2: string): number => {
+      // 比较版本号
+      const compareVersions = (v1: string, v2: string): number => {
         const parts1 = v1.split('.').map(Number)
         const parts2 = v2.split('.').map(Number)
         for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
@@ -1984,12 +2080,12 @@ app.whenReady().then(async () => {
       console.error('[Update] Manual check failed:', error)
       return {
         hasUpdate: false,
-        error: error instanceof Error ? error.message : '妫€鏌ユ洿鏂板け璐?
+        error: error instanceof Error ? error.message : '检查更新失败'
       }
     }
   })
 
-  // IPC: 鍔犺浇璐﹀彿鏁版嵁
+  // IPC: 加载账号数据
   ipcMain.handle('load-accounts', async () => {
     try {
       await initStore()
@@ -2000,16 +2096,16 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 淇濆瓨璐﹀彿鏁版嵁
+  // IPC: 保存账号数据
   ipcMain.handle('save-accounts', async (_event, data) => {
     try {
       await initStore()
       store!.set('accountData', data)
       
-      // 淇濆瓨鏈€鍚庣殑鏁版嵁锛堢敤浜庡穿婧冩仮澶嶏級
+      // 保存最后的数据（用于崩溃恢复）
       lastSavedData = data
       
-      // 姣忔淇濆瓨鏃朵篃鍒涘缓澶囦唤
+      // 每次保存时也创建备份
       await createBackup(data)
     } catch (error) {
       console.error('Failed to save accounts:', error)
@@ -2017,23 +2113,23 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍒锋柊璐﹀彿 Token锛堟敮鎸?IdC 鍜岀ぞ浜ょ櫥褰曪級
+  // IPC: 刷新账号 Token（支持 IdC 和社交登录）
   ipcMain.handle('refresh-account-token', async (_event, account) => {
     try {
       const { refreshToken, clientId, clientSecret, region, authMethod } = account.credentials || {}
 
       if (!refreshToken) {
-        return { success: false, error: { message: '缂哄皯 Refresh Token' } }
+        return { success: false, error: { message: '缺少 Refresh Token' } }
       }
 
-      // 绀句氦鐧诲綍鍙渶瑕?refreshToken锛孖dC 鐧诲綍闇€瑕?clientId 鍜?clientSecret
+      // 社交登录只需要 refreshToken，IdC 登录需要 clientId 和 clientSecret
       if (authMethod !== 'social' && (!clientId || !clientSecret)) {
-        return { success: false, error: { message: '缂哄皯 OIDC 鍒锋柊鍑瘉 (clientId/clientSecret)' } }
+        return { success: false, error: { message: '缺少 OIDC 刷新凭证 (clientId/clientSecret)' } }
       }
 
       console.log(`[IPC] Refreshing token (authMethod: ${authMethod || 'IdC'})...`)
 
-      // 鏍规嵁 authMethod 閫夋嫨鍒锋柊鏂瑰紡
+      // 根据 authMethod 选择刷新方式
       const refreshResult = await refreshTokenByMethod(
         refreshToken,
         clientId || '',
@@ -2043,7 +2139,7 @@ app.whenReady().then(async () => {
       )
 
       if (!refreshResult.success || !refreshResult.accessToken) {
-        return { success: false, error: { message: refreshResult.error || 'Token 鍒锋柊澶辫触' } }
+        return { success: false, error: { message: refreshResult.error || 'Token 刷新失败' } }
       }
 
       return {
@@ -2062,19 +2158,19 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 浠?SSO Token 瀵煎叆璐﹀彿 (x-amz-sso_authn)
+  // IPC: 从 SSO Token 导入账号 (x-amz-sso_authn)
   ipcMain.handle('import-from-sso-token', async (_event, bearerToken: string, region: string = 'us-east-1') => {
     console.log('[IPC] import-from-sso-token called')
     
     try {
-      // 鎵ц SSO 璁惧鎺堟潈娴佺▼
+      // 执行 SSO 设备授权流程
       const ssoResult = await ssoDeviceAuth(bearerToken, region)
       
       if (!ssoResult.success || !ssoResult.accessToken) {
-        return { success: false, error: { message: ssoResult.error || 'SSO 鎺堟潈澶辫触' } }
+        return { success: false, error: { message: ssoResult.error || 'SSO 授权失败' } }
       }
 
-      // 骞惰鑾峰彇鐢ㄦ埛淇℃伅鍜屼娇鐢ㄩ噺
+      // 并行获取用户信息和使用量
       interface UsageBreakdownItem {
         resourceType?: string
         currentUsage?: number
@@ -2115,10 +2211,11 @@ app.whenReady().then(async () => {
         console.error('[IPC] API calls failed:', e)
       }
 
-      // 瑙ｆ瀽浣跨敤閲忔暟鎹?      const creditUsage = usageData?.usageBreakdownList?.find(b => b.resourceType === 'CREDIT')
+      // 解析使用量数据
+      const creditUsage = usageData?.usageBreakdownList?.find(b => b.resourceType === 'CREDIT')
       const subscriptionTitle = usageData?.subscriptionInfo?.subscriptionTitle || 'KIRO'
       
-      // 瑙勮寖鍖栬闃呯被鍨嬶紙娉ㄦ剰妫€鏌ラ『搴忥細鍏堟鏌ユ洿鍏蜂綋鐨勭被鍨嬶級
+      // 规范化订阅类型（注意检查顺序：先检查更具体的类型）
       let subscriptionType = 'Free'
       const titleUpper = subscriptionTitle.toUpperCase()
       if (titleUpper.includes('PRO+') || titleUpper.includes('PRO_PLUS') || titleUpper.includes('PROPLUS')) {
@@ -2133,11 +2230,11 @@ app.whenReady().then(async () => {
         subscriptionType = 'Teams'
       }
 
-      // 鍩虹棰濆害锛堜娇鐢ㄧ簿纭皬鏁帮級
+      // 基础额度（使用精确小数）
       const baseLimit = creditUsage?.usageLimitWithPrecision ?? creditUsage?.usageLimit ?? 0
       const baseCurrent = creditUsage?.currentUsageWithPrecision ?? creditUsage?.currentUsage ?? 0
 
-      // 璇曠敤棰濆害锛堜娇鐢ㄧ簿纭皬鏁帮級
+      // 试用额度（使用精确小数）
       let freeTrialLimit = 0, freeTrialCurrent = 0, freeTrialExpiry: string | undefined
       if (creditUsage?.freeTrialInfo?.freeTrialStatus === 'ACTIVE') {
         freeTrialLimit = creditUsage.freeTrialInfo.usageLimitWithPrecision ?? creditUsage.freeTrialInfo.usageLimit ?? 0
@@ -2145,7 +2242,7 @@ app.whenReady().then(async () => {
         freeTrialExpiry = creditUsage.freeTrialInfo.freeTrialExpiry
       }
 
-      // 濂栧姳棰濆害锛堜娇鐢ㄧ簿纭皬鏁帮級
+      // 奖励额度（使用精确小数）
       const bonuses = (creditUsage?.bonuses || []).map(b => ({
         code: b.bonusCode || '',
         name: b.displayName || '',
@@ -2210,7 +2307,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 妫€鏌ヨ处鍙风姸鎬侊紙鏀寔鑷姩鍒锋柊 Token锛?  ipcMain.handle('check-account-status', async (_event, account) => {
+  // IPC: 检查账号状态（支持自动刷新 Token）
+  ipcMain.handle('check-account-status', async (_event, account) => {
     console.log(`[IPC] check-account-status [${account?.email || 'unknown'}]`)
 
     interface Bonus {
@@ -2221,7 +2319,7 @@ app.whenReady().then(async () => {
       currentUsage?: number
       currentUsageWithPrecision?: number
       status?: string
-      expiresAt?: string  // API 杩斿洖鐨勬槸 expiresAt
+      expiresAt?: string  // API 返回的是 expiresAt
     }
 
     interface FreeTrialInfo {
@@ -2276,23 +2374,25 @@ app.whenReady().then(async () => {
       userInfo?: UserInfo
     }
 
-    // 瑙ｆ瀽 API 鍝嶅簲鐨勮緟鍔╁嚱鏁?    const parseUsageResponse = (result: UsageResponse, newCredentials?: {
+    // 解析 API 响应的辅助函数
+    const parseUsageResponse = (result: UsageResponse, newCredentials?: {
       accessToken: string
       refreshToken?: string
       expiresIn?: number
     }, userInfo?: UserInfoResponse) => {
       console.log(`[Kiro API] Usage [${account?.email || userInfo?.email || 'unknown'}]`, result)
 
-      // 瑙ｆ瀽 Credits 浣跨敤閲忥紙resourceType 涓?CREDIT锛?      const creditUsage = result.usageBreakdownList?.find(
+      // 解析 Credits 使用量（resourceType 为 CREDIT）
+      const creditUsage = result.usageBreakdownList?.find(
         (b) => b.resourceType === 'CREDIT' || b.displayName === 'Credits'
       )
 
-      // 瑙ｆ瀽浣跨敤閲忥紙璇︾粏锛屼娇鐢ㄧ簿纭皬鏁帮級
-      // 鍩虹棰濆害
+      // 解析使用量（详细，使用精确小数）
+      // 基础额度
       const baseLimit = creditUsage?.usageLimitWithPrecision ?? creditUsage?.usageLimit ?? 0
       const baseCurrent = creditUsage?.currentUsageWithPrecision ?? creditUsage?.currentUsage ?? 0
       
-      // 璇曠敤棰濆害
+      // 试用额度
       let freeTrialLimit = 0
       let freeTrialCurrent = 0
       let freeTrialExpiry: string | undefined
@@ -2302,7 +2402,7 @@ app.whenReady().then(async () => {
         freeTrialExpiry = creditUsage.freeTrialInfo.freeTrialExpiry
       }
       
-      // 濂栧姳棰濆害
+      // 奖励额度
       const bonusesData: { code: string; name: string; current: number; limit: number; expiresAt?: string }[] = []
       if (creditUsage?.bonuses) {
         for (const bonus of creditUsage.bonuses) {
@@ -2318,11 +2418,12 @@ app.whenReady().then(async () => {
         }
       }
       
-      // 璁＄畻鎬婚搴?      const totalLimit = baseLimit + freeTrialLimit + bonusesData.reduce((sum, b) => sum + b.limit, 0)
+      // 计算总额度
+      const totalLimit = baseLimit + freeTrialLimit + bonusesData.reduce((sum, b) => sum + b.limit, 0)
       const totalUsed = baseCurrent + freeTrialCurrent + bonusesData.reduce((sum, b) => sum + b.current, 0)
       const nextResetDate = result.nextDateReset
 
-      // 瑙ｆ瀽璁㈤槄绫诲瀷
+      // 解析订阅类型
       const subscriptionTitle = result.subscriptionInfo?.subscriptionTitle ?? 'Free'
       let subscriptionType = account.subscription?.type ?? 'Free'
       if (subscriptionTitle.toUpperCase().includes('PRO')) {
@@ -2333,7 +2434,8 @@ app.whenReady().then(async () => {
         subscriptionType = 'Teams'
       }
 
-      // 瑙ｆ瀽閲嶇疆鏃堕棿骞惰绠楀墿浣欏ぉ鏁?      let expiresAt: number | undefined
+      // 解析重置时间并计算剩余天数
+      let expiresAt: number | undefined
       let daysRemaining: number | undefined
       if (result.nextDateReset) {
         expiresAt = new Date(result.nextDateReset).getTime()
@@ -2341,7 +2443,7 @@ app.whenReady().then(async () => {
         daysRemaining = Math.max(0, Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24)))
       }
 
-      // 璧勬簮璇︽儏
+      // 资源详情
       const resourceDetail = creditUsage ? {
         resourceType: creditUsage.resourceType,
         displayName: creditUsage.displayName,
@@ -2387,7 +2489,8 @@ app.whenReady().then(async () => {
             overageCapability: result.subscriptionInfo?.overageCapability,
             managementTarget: result.subscriptionInfo?.subscriptionManagementTarget
           },
-          // 濡傛灉鍒锋柊浜?token锛岃繑鍥炴柊鐨勫嚟璇?          newCredentials: newCredentials ? {
+          // 如果刷新了 token，返回新的凭证
+          newCredentials: newCredentials ? {
             accessToken: newCredentials.accessToken,
             refreshToken: newCredentials.refreshToken,
             expiresAt: newCredentials.expiresIn 
@@ -2401,8 +2504,8 @@ app.whenReady().then(async () => {
     try {
       const { accessToken, refreshToken, clientId, clientSecret, region, authMethod, provider } = account.credentials || {}
       
-      // 纭畾姝ｇ‘鐨?idp锛氫紭鍏堜娇鐢?credentials.provider锛屽惁鍒欏洖閫€鍒?account.idp
-      // 绀句氦鐧诲綍浣跨敤瀹為檯鐨?provider (Github/Google)锛孖dC 浣跨敤 BuilderId
+      // 确定正确的 idp：优先使用 credentials.provider，否则回退到 account.idp
+      // 社交登录使用实际的 provider (Github/Google)，IdC 使用 BuilderId
       let idp = 'BuilderId'
       if (authMethod === 'social') {
         idp = provider || account.idp || 'BuilderId'
@@ -2412,18 +2515,19 @@ app.whenReady().then(async () => {
 
       if (!accessToken) {
         console.log('[IPC] Missing accessToken')
-        return { success: false, error: { message: '缂哄皯 accessToken' } }
+        return { success: false, error: { message: '缺少 accessToken' } }
       }
 
-      // 鑾峰彇璐︽埛缁戝畾鐨勮澶?ID
+      // 获取账户绑定的设备 ID
       const accountMachineId = account?.machineId as string | undefined
 
-      // 绗竴娆″皾璇曪細浣跨敤褰撳墠 accessToken
+      // 第一次尝试：使用当前 accessToken
       try {
-        // 骞惰璋冪敤 GetUserInfo 鍜?getUsageAndLimits
+        // 并行调用 GetUserInfo 和 getUsageAndLimits
         const [userInfoResult, usageResult] = await Promise.all([
           getUserInfo(accessToken, idp, accountMachineId, account?.email).catch((err: Error) => {
-            // 灏佺閿欒涓嶈兘鍚炴帀锛屽繀椤诲悜涓婃姏鍑?            if (err.message.includes('423') || err.message.includes('AccountSuspended')) {
+            // 封禁错误不能吞掉，必须向上抛出
+            if (err.message.includes('423') || err.message.includes('AccountSuspended')) {
               throw err
             }
             return undefined
@@ -2434,7 +2538,8 @@ app.whenReady().then(async () => {
       } catch (apiError) {
         const errorMsg = apiError instanceof Error ? apiError.message : ''
         
-        // 妫€鏌ユ槸鍚︽槸鏄庣‘灏佺閿欒锛?23 鎴?AccountSuspendedException锛?        if (errorMsg.includes('AccountSuspendedException') || errorMsg.includes('423')) {
+        // 检查是否是明确封禁错误（423 或 AccountSuspendedException）
+        if (errorMsg.includes('AccountSuspendedException') || errorMsg.includes('423')) {
           console.log('[IPC] Account suspended/banned')
           return {
             success: false,
@@ -2442,12 +2547,13 @@ app.whenReady().then(async () => {
           }
         }
         
-        // 妫€鏌ユ槸鍚︽槸 401 閿欒锛坱oken 杩囨湡锛?        // 绀句氦鐧诲綍鍙渶瑕?refreshToken锛孖dC 鐧诲綍闇€瑕?clientId 鍜?clientSecret
+        // 检查是否是 401 错误（token 过期）
+        // 社交登录只需要 refreshToken，IdC 登录需要 clientId 和 clientSecret
         const canRefresh = refreshToken && (authMethod === 'social' || (clientId && clientSecret))
         if (errorMsg.includes('401') && canRefresh) {
           console.log(`[IPC] Token expired, attempting to refresh (authMethod: ${authMethod || 'IdC'})...`)
           
-          // 灏濊瘯鍒锋柊 token - 鏍规嵁 authMethod 閫夋嫨鍒锋柊鏂瑰紡
+          // 尝试刷新 token - 根据 authMethod 选择刷新方式
           const refreshResult = await refreshTokenByMethod(
             refreshToken,
             clientId || '',
@@ -2459,7 +2565,7 @@ app.whenReady().then(async () => {
           if (refreshResult.success && refreshResult.accessToken) {
             console.log('[IPC] Token refreshed, retrying API call...')
             
-            // 鐢ㄦ柊 token 骞惰璋冪敤 GetUserInfo 鍜?getUsageAndLimits
+            // 用新 token 并行调用 GetUserInfo 和 getUsageAndLimits
             const [userInfoResult, usageResult] = await Promise.all([
               getUserInfo(refreshResult.accessToken, idp, accountMachineId).catch((err: Error) => {
                 if (err.message.includes('423') || err.message.includes('AccountSuspended')) {
@@ -2470,7 +2576,7 @@ app.whenReady().then(async () => {
               getUsageAndLimits(refreshResult.accessToken, idp, undefined, accountMachineId, region)
             ])
             
-            // 杩斿洖缁撴灉骞跺寘鍚柊鍑瘉
+            // 返回结果并包含新凭证
             return parseUsageResponse(usageResult, {
               accessToken: refreshResult.accessToken,
               refreshToken: refreshResult.refreshToken,
@@ -2480,12 +2586,13 @@ app.whenReady().then(async () => {
             console.error('[IPC] Token refresh failed:', refreshResult.error)
             return {
               success: false,
-              error: { message: `Token 杩囨湡涓斿埛鏂板け璐? ${refreshResult.error}` }
+              error: { message: `Token 过期且刷新失败: ${refreshResult.error}` }
             }
           }
         }
         
-        // 涓嶆槸 401 鎴栨病鏈夊埛鏂板嚟璇侊紝鎶涘嚭鍘熼敊璇?        throw apiError
+        // 不是 401 或没有刷新凭证，抛出原错误
+        throw apiError
       }
     } catch (error) {
       console.error('check-account-status error:', error)
@@ -2496,11 +2603,12 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍚庡彴鎵归噺鍒锋柊璐﹀彿锛堝湪涓昏繘绋嬫墽琛岋紝涓嶉樆濉?UI锛?  ipcMain.handle('background-batch-refresh', async (_event, accounts: Array<{
+  // IPC: 后台批量刷新账号（在主进程执行，不阻塞 UI）
+  ipcMain.handle('background-batch-refresh', async (_event, accounts: Array<{
     id: string
     idp?: string
     needsTokenRefresh?: boolean
-    machineId?: string  // 璐︽埛缁戝畾鐨勮澶?ID
+    machineId?: string  // 账户绑定的设备 ID
     credentials: {
       refreshToken: string
       clientId?: string
@@ -2517,15 +2625,17 @@ app.whenReady().then(async () => {
     let success = 0
     let failed = 0
 
-    // 涓茶澶勭悊姣忔壒锛岄伩鍏嶅苟鍙戣繃楂?    for (let i = 0; i < accounts.length; i += concurrency) {
+    // 串行处理每批，避免并发过高
+    for (let i = 0; i < accounts.length; i += concurrency) {
       const batch = accounts.slice(i, i + concurrency)
       
       await Promise.allSettled(
         batch.map(async (account) => {
           try {
             const { refreshToken, clientId, clientSecret, region, authMethod, accessToken, provider } = account.credentials
-            const needsTokenRefresh = account.needsTokenRefresh !== false // 榛樿涓?true锛堝吋瀹规棫鐗堟湰锛?            
-            // 纭畾姝ｇ‘鐨?idp
+            const needsTokenRefresh = account.needsTokenRefresh !== false // 默认为 true（兼容旧版本）
+            
+            // 确定正确的 idp
             let idp = 'BuilderId'
             if (authMethod === 'social') {
               idp = provider || account.idp || 'BuilderId'
@@ -2537,7 +2647,7 @@ app.whenReady().then(async () => {
             let newRefreshToken = refreshToken
             let newExpiresIn: number | undefined
 
-            // 鍙湁闇€瑕佸埛鏂?Token 鏃舵墠鍒锋柊
+            // 只有需要刷新 Token 时才刷新
             if (needsTokenRefresh) {
               if (!refreshToken) {
                 failed++
@@ -2545,7 +2655,7 @@ app.whenReady().then(async () => {
                 return
               }
 
-              // 鍒锋柊 Token
+              // 刷新 Token
               const refreshResult = await refreshTokenByMethod(
                 refreshToken,
                 clientId || '',
@@ -2557,7 +2667,7 @@ app.whenReady().then(async () => {
               if (!refreshResult.success) {
                 failed++
                 completed++
-                // 閫氱煡娓叉煋杩涚▼鍒锋柊澶辫触
+                // 通知渲染进程刷新失败
                 mainWindow?.webContents.send('background-refresh-result', {
                   id: account.id,
                   success: false,
@@ -2571,14 +2681,15 @@ app.whenReady().then(async () => {
               newExpiresIn = refreshResult.expiresIn
             }
 
-            // 鑾峰彇璐﹀彿淇℃伅
+            // 获取账号信息
             if (!newAccessToken) {
               failed++
               completed++
               return
             }
 
-            // 鏍规嵁 syncInfo 鍐冲畾鏄惁妫€娴嬭处鎴蜂俊鎭?            let parsedUsage: {
+            // 根据 syncInfo 决定是否检测账户信息
+            let parsedUsage: {
               current: number
               limit: number
               baseCurrent: number
@@ -2605,7 +2716,8 @@ app.whenReady().then(async () => {
             let errorMessage: string | undefined
 
             if (syncInfo) {
-              // 璋冪敤 getUsageAndLimits API锛堟牴鎹厤缃€夋嫨 REST 鎴?CBOR 鏍煎紡锛?              try {
+              // 调用 getUsageAndLimits API（根据配置选择 REST 或 CBOR 格式）
+              try {
                 interface UsageBreakdownItem {
                   resourceType?: string
                   displayName?: string
@@ -2651,7 +2763,8 @@ app.whenReady().then(async () => {
                 console.log(`[BackgroundRefresh] Account ${account.id} machineId: ${account.machineId || 'undefined'}`)
                 const rawUsage = await getUsageAndLimits(newAccessToken, idp, undefined, account.machineId, region) as UsageResponse
                 
-                // 瑙ｆ瀽浣跨敤閲忔暟鎹?                const creditUsage = rawUsage.usageBreakdownList?.find(b => b.resourceType === 'CREDIT')
+                // 解析使用量数据
+                const creditUsage = rawUsage.usageBreakdownList?.find(b => b.resourceType === 'CREDIT')
                 const baseCurrent = creditUsage?.currentUsageWithPrecision ?? creditUsage?.currentUsage ?? 0
                 const baseLimit = creditUsage?.usageLimitWithPrecision ?? creditUsage?.usageLimit ?? 0
                 let freeTrialCurrent = 0
@@ -2701,7 +2814,7 @@ app.whenReady().then(async () => {
                   } : undefined
                 }
                 
-                // 瑙ｆ瀽璁㈤槄淇℃伅锛堟敞鎰忔鏌ラ『搴忥細鍏堟鏌ユ洿鍏蜂綋鐨勭被鍨嬶級
+                // 解析订阅信息（注意检查顺序：先检查更具体的类型）
                 const subscriptionTitle = rawUsage.subscriptionInfo?.subscriptionTitle || 'Free'
                 let subscriptionType = 'Free'
                 const titleUpper = subscriptionTitle.toUpperCase()
@@ -2717,7 +2830,8 @@ app.whenReady().then(async () => {
                   subscriptionType = 'Teams'
                 }
                 
-                // 璁＄畻鍓╀綑澶╂暟鍜屽埌鏈熸椂闂?                let daysRemaining: number | undefined
+                // 计算剩余天数和到期时间
+                let daysRemaining: number | undefined
                 let expiresAt: number | undefined
                 if (rawUsage.nextDateReset) {
                   expiresAt = new Date(rawUsage.nextDateReset).getTime()
@@ -2742,7 +2856,8 @@ app.whenReady().then(async () => {
                 }
               }
 
-              // 璋冪敤 GetUserInfo API 鑾峰彇鐢ㄦ埛鐘舵€?              try {
+              // 调用 GetUserInfo API 获取用户状态
+              try {
                 userInfoData = await getUserInfo(newAccessToken, idp, account.machineId)
               } catch (apiError) {
                 const errMsg = apiError instanceof Error ? apiError.message : String(apiError)
@@ -2756,7 +2871,7 @@ app.whenReady().then(async () => {
             success++
             completed++
 
-            // 閫氱煡娓叉煋杩涚▼鏇存柊璐﹀彿
+            // 通知渲染进程更新账号
             mainWindow?.webContents.send('background-refresh-result', {
               id: account.id,
               success: true,
@@ -2783,7 +2898,7 @@ app.whenReady().then(async () => {
         })
       )
 
-      // 閫氱煡杩涘害
+      // 通知进度
       mainWindow?.webContents.send('background-refresh-progress', {
         completed,
         total: accounts.length,
@@ -2791,7 +2906,8 @@ app.whenReady().then(async () => {
         failed
       })
 
-      // 鎵规闂村欢杩燂紝璁╀富杩涚▼鏈夊枠鎭椂闂?      if (i + concurrency < accounts.length) {
+      // 批次间延迟，让主进程有喘息时间
+      if (i + concurrency < accounts.length) {
         await new Promise(resolve => setTimeout(resolve, 100))
       }
     }
@@ -2800,7 +2916,7 @@ app.whenReady().then(async () => {
     return { success: true, completed, successCount: success, failedCount: failed }
   })
 
-  // IPC: 鍚庡彴鎵归噺妫€鏌ヨ处鍙风姸鎬侊紙涓嶅埛鏂?Token锛屽彧妫€鏌ョ姸鎬侊級
+  // IPC: 后台批量检查账号状态（不刷新 Token，只检查状态）
   ipcMain.handle('background-batch-check', async (_event, accounts: Array<{
     id: string
     email: string
@@ -2821,7 +2937,7 @@ app.whenReady().then(async () => {
     let success = 0
     let failed = 0
 
-    // 涓茶澶勭悊姣忔壒
+    // 串行处理每批
     for (let i = 0; i < accounts.length; i += concurrency) {
       const batch = accounts.slice(i, i + concurrency)
       
@@ -2836,18 +2952,19 @@ app.whenReady().then(async () => {
               mainWindow?.webContents.send('background-check-result', {
                 id: account.id,
                 success: false,
-                error: '缂哄皯 accessToken'
+                error: '缺少 accessToken'
               })
               return
             }
 
-            // 纭畾 idp
+            // 确定 idp
             let idp = account.idp || 'BuilderId'
             if (authMethod === 'social' && provider) {
               idp = provider
             }
 
-            // 璋冪敤 API 鑾峰彇鐢ㄩ噺鍜岀敤鎴蜂俊鎭紙鏍规嵁閰嶇疆閫夋嫨 REST 鎴?CBOR 鏍煎紡锛?            const [usageRes, userInfoRes] = await Promise.allSettled([
+            // 调用 API 获取用量和用户信息（根据配置选择 REST 或 CBOR 格式）
+            const [usageRes, userInfoRes] = await Promise.allSettled([
               getUsageAndLimits(accessToken, idp, undefined, undefined, account.credentials?.region, account.email) as Promise<{
                 usageBreakdownList?: Array<{
                   resourceType?: string
@@ -2899,14 +3016,15 @@ app.whenReady().then(async () => {
                 status?: string
                 idp?: string
               }>('GetUserInfo', { origin: 'KIRO_IDE' }, accessToken, idp, undefined, account.email).catch((err: Error) => {
-                // 灏佺閿欒涓嶈兘鍚炴帀锛岄渶瑕佸湪鍚庣画閫昏緫涓娴?                if (err.message.includes('423') || err.message.includes('AccountSuspended')) {
+                // 封禁错误不能吞掉，需要在后续逻辑中检测
+                if (err.message.includes('423') || err.message.includes('AccountSuspended')) {
                   throw err
                 }
                 return null
               })
             ])
 
-            // 瑙ｆ瀽鍝嶅簲锛坘iroApiRequest 鐩存帴杩斿洖鏁版嵁鎴栨姏鍑哄紓甯革級
+            // 解析响应（kiroApiRequest 直接返回数据或抛出异常）
             let usageData: {
               current: number
               limit: number
@@ -2945,10 +3063,10 @@ app.whenReady().then(async () => {
             let status = 'active'
             let errorMessage: string | undefined
 
-            // 澶勭悊鐢ㄩ噺鍝嶅簲
+            // 处理用量响应
             if (usageRes.status === 'fulfilled') {
               const rawUsage = usageRes.value
-              // 瑙ｆ瀽 Credits 浣跨敤閲忥紙鍜屽崟涓鏌ヤ竴鑷达級
+              // 解析 Credits 使用量（和单个检查一致）
               const creditUsage = rawUsage.usageBreakdownList?.find(
                 (b) => b.resourceType === 'CREDIT' || b.displayName === 'Credits'
               )
@@ -2964,7 +3082,7 @@ app.whenReady().then(async () => {
                 freeTrialExpiry = creditUsage.freeTrialInfo.freeTrialExpiry
               }
               
-              // 瑙ｆ瀽 bonuses
+              // 解析 bonuses
               const bonuses: Array<{ code: string; name: string; current: number; limit: number; expiresAt?: string }> = []
               if (creditUsage?.bonuses) {
                 for (const bonus of creditUsage.bonuses) {
@@ -2995,7 +3113,8 @@ app.whenReady().then(async () => {
                 nextResetDate: rawUsage.nextDateReset
               }
 
-              // 瑙ｆ瀽璧勬簮璇︽儏锛堝惈瓒呴淇℃伅锛?              if (creditUsage) {
+              // 解析资源详情（含超额信息）
+              if (creditUsage) {
                 resourceDetail = {
                   displayName: creditUsage.displayName,
                   displayNamePlural: (creditUsage as { displayNamePlural?: string }).displayNamePlural,
@@ -3008,7 +3127,7 @@ app.whenReady().then(async () => {
                 }
               }
 
-              // 瑙ｆ瀽璁㈤槄淇℃伅锛堟敞鎰忔鏌ラ『搴忥細鍏堟鏌ユ洿鍏蜂綋鐨勭被鍨嬶級
+              // 解析订阅信息（注意检查顺序：先检查更具体的类型）
               const subscriptionTitle = rawUsage.subscriptionInfo?.subscriptionTitle ?? 'Free'
               let subscriptionType = 'Free'
               const titleUpper = subscriptionTitle.toUpperCase()
@@ -3024,7 +3143,8 @@ app.whenReady().then(async () => {
                 subscriptionType = 'Teams'
               }
               
-              // 璁＄畻鍓╀綑澶╂暟鍜屽埌鏈熸椂闂?              let daysRemaining: number | undefined
+              // 计算剩余天数和到期时间
+              let daysRemaining: number | undefined
               let expiresAt: number | undefined
               if (rawUsage.nextDateReset) {
                 expiresAt = new Date(rawUsage.nextDateReset).getTime()
@@ -3041,21 +3161,22 @@ app.whenReady().then(async () => {
                 subscriptionManagementTarget: rawUsage.subscriptionInfo?.subscriptionManagementTarget
               }
             } else if (usageRes.status === 'rejected') {
-              // API 璋冪敤澶辫触锛堝彲鑳芥槸灏佺鎴?Token 杩囨湡锛?              const errorMsg = usageRes.reason?.message || String(usageRes.reason)
+              // API 调用失败（可能是封禁或 Token 过期）
+              const errorMsg = usageRes.reason?.message || String(usageRes.reason)
               console.log(`[BackgroundCheck] Usage API failed for ${account.email}:`, errorMsg)
               if (errorMsg.includes('AccountSuspendedException') || errorMsg.includes('423')) {
                 status = 'error'
                 errorMessage = errorMsg
               } else if (errorMsg.includes('401')) {
                 status = 'expired'
-                errorMessage = 'Token 宸茶繃鏈燂紝璇峰埛鏂?
+                errorMessage = 'Token 已过期，请刷新'
               } else {
                 status = 'error'
                 errorMessage = errorMsg
               }
             }
 
-            // 澶勭悊鐢ㄦ埛淇℃伅鍝嶅簲
+            // 处理用户信息响应
             if (userInfoRes.status === 'fulfilled' && userInfoRes.value) {
               const rawUserInfo = userInfoRes.value
               userInfoData = {
@@ -3063,13 +3184,13 @@ app.whenReady().then(async () => {
                 userId: rawUserInfo.userId,
                 status: rawUserInfo.status
               }
-              // 妫€鏌ョ敤鎴风姸鎬侊紙Stale 瑙嗕负姝ｅ父锛屼粎 Suspended/Disabled 绛夎涓哄紓甯革級
+              // 检查用户状态（Stale 视为正常，仅 Suspended/Disabled 等视为异常）
               if (rawUserInfo.status && rawUserInfo.status !== 'Active' && rawUserInfo.status !== 'Stale' && status !== 'error') {
                 status = 'error'
-                errorMessage = `鐢ㄦ埛鐘舵€佸紓甯? ${rawUserInfo.status}`
+                errorMessage = `用户状态异常: ${rawUserInfo.status}`
               }
             } else if (userInfoRes.status === 'rejected') {
-              // GetUserInfo 澶辫触锛堝皝绂侀敊璇細鍒拌繖閲岋級
+              // GetUserInfo 失败（封禁错误会到这里）
               const errMsg = userInfoRes.reason?.message || String(userInfoRes.reason)
               if (errMsg.includes('423') || errMsg.includes('AccountSuspended')) {
                 status = 'error'
@@ -3080,7 +3201,7 @@ app.whenReady().then(async () => {
             success++
             completed++
 
-            // 閫氱煡娓叉煋杩涚▼鏇存柊璐﹀彿
+            // 通知渲染进程更新账号
             mainWindow?.webContents.send('background-check-result', {
               id: account.id,
               success: true,
@@ -3104,7 +3225,7 @@ app.whenReady().then(async () => {
         })
       )
 
-      // 閫氱煡杩涘害
+      // 通知进度
       mainWindow?.webContents.send('background-check-progress', {
         completed,
         total: accounts.length,
@@ -3112,7 +3233,8 @@ app.whenReady().then(async () => {
         failed
       })
 
-      // 鎵规闂村欢杩?      if (i + concurrency < accounts.length) {
+      // 批次间延迟
+      if (i + concurrency < accounts.length) {
         await new Promise(resolve => setTimeout(resolve, 100))
       }
     }
@@ -3121,10 +3243,11 @@ app.whenReady().then(async () => {
     return { success: true, completed, successCount: success, failedCount: failed }
   })
 
-  // IPC: 瀵煎嚭鍒版枃浠?  ipcMain.handle('export-to-file', async (_event, data: string, filename: string) => {
+  // IPC: 导出到文件
+  ipcMain.handle('export-to-file', async (_event, data: string, filename: string) => {
     try {
       const result = await dialog.showSaveDialog(mainWindow!, {
-        title: '瀵煎嚭璐﹀彿鏁版嵁',
+        title: '导出账号数据',
         defaultPath: filename,
         filters: [{ name: 'JSON Files', extensions: ['json'] }]
       })
@@ -3140,12 +3263,13 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 浠庢枃浠跺鍏?  ipcMain.handle('import-from-file', async () => {
+  // IPC: 从文件导入
+  ipcMain.handle('import-from-file', async () => {
     try {
       const result = await dialog.showOpenDialog(mainWindow!, {
-        title: '瀵煎叆璐﹀彿鏁版嵁',
+        title: '导入账号数据',
         filters: [
-          { name: '鎵€鏈夋敮鎸佺殑鏍煎紡', extensions: ['json', 'csv', 'txt'] },
+          { name: '所有支持的格式', extensions: ['json', 'csv', 'txt'] },
           { name: 'JSON Files', extensions: ['json'] },
           { name: 'CSV Files', extensions: ['csv'] },
           { name: 'TXT Files', extensions: ['txt'] }
@@ -3166,41 +3290,43 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 楠岃瘉鍑瘉骞惰幏鍙栬处鍙蜂俊鎭紙鐢ㄤ簬娣诲姞璐﹀彿锛?  ipcMain.handle('verify-account-credentials', async (_event, credentials: {
+  // IPC: 验证凭证并获取账号信息（用于添加账号）
+  ipcMain.handle('verify-account-credentials', async (_event, credentials: {
     refreshToken: string
     clientId: string
     clientSecret: string
     region?: string
     authMethod?: string
-    provider?: string  // 'BuilderId', 'Github', 'Google' 绛?  }) => {
+    provider?: string  // 'BuilderId', 'Github', 'Google' 等
+  }) => {
     console.log('[IPC] verify-account-credentials called')
     
     try {
       const { refreshToken, clientId, clientSecret, region = 'us-east-1', authMethod, provider } = credentials
-      // 纭畾 idp锛氱ぞ浜ょ櫥褰曚娇鐢?provider锛孖dC 涔熼渶瑕佹牴鎹?provider 鍖哄垎 BuilderId 鍜?Enterprise
+      // 确定 idp：社交登录使用 provider，IdC 也需要根据 provider 区分 BuilderId 和 Enterprise
       const idp = provider && (provider === 'Enterprise' || provider === 'Github' || provider === 'Google') 
         ? provider 
         : 'BuilderId'
       
-      // 绀句氦鐧诲綍鍙渶瑕?refreshToken锛孖dC 闇€瑕?clientId 鍜?clientSecret
+      // 社交登录只需要 refreshToken，IdC 需要 clientId 和 clientSecret
       if (!refreshToken) {
-        return { success: false, error: '璇峰～鍐?Refresh Token' }
+        return { success: false, error: '请填写 Refresh Token' }
       }
       if (authMethod !== 'social' && (!clientId || !clientSecret)) {
-        return { success: false, error: '璇峰～鍐?Client ID 鍜?Client Secret' }
+        return { success: false, error: '请填写 Client ID 和 Client Secret' }
       }
       
-      // Step 1: 浣跨敤鍚堥€傜殑鏂瑰紡鍒锋柊鑾峰彇 accessToken
+      // Step 1: 使用合适的方式刷新获取 accessToken
       console.log(`[Verify] Step 1: Refreshing token (authMethod: ${authMethod || 'IdC'})...`)
       const refreshResult = await refreshTokenByMethod(refreshToken, clientId, clientSecret, region, authMethod)
       
       if (!refreshResult.success || !refreshResult.accessToken) {
-        return { success: false, error: `Token 鍒锋柊澶辫触: ${refreshResult.error}` }
+        return { success: false, error: `Token 刷新失败: ${refreshResult.error}` }
       }
       
       console.log('[Verify] Step 2: Getting user info...')
       
-      // Step 2: 璋冪敤 GetUserUsageAndLimits 鑾峰彇鐢ㄦ埛淇℃伅
+      // Step 2: 调用 GetUserUsageAndLimits 获取用户信息
       interface Bonus {
         bonusCode?: string
         displayName?: string
@@ -3209,7 +3335,7 @@ app.whenReady().then(async () => {
         currentUsage?: number
         currentUsageWithPrecision?: number
         status?: string
-        expiresAt?: string  // API 杩斿洖鐨勬槸 expiresAt
+        expiresAt?: string  // API 返回的是 expiresAt
       }
       
       interface FreeTrialInfo {
@@ -3253,11 +3379,11 @@ app.whenReady().then(async () => {
       
       const usageResult = await getUsageAndLimits(refreshResult.accessToken, idp, undefined, undefined, region) as UsageResponse
       
-      // 瑙ｆ瀽鐢ㄦ埛淇℃伅
+      // 解析用户信息
       const email = usageResult.userInfo?.email || ''
       const userId = usageResult.userInfo?.userId || ''
       
-      // 瑙ｆ瀽璁㈤槄绫诲瀷锛堟敞鎰忔鏌ラ『搴忥細鍏堟鏌ユ洿鍏蜂綋鐨勭被鍨嬶級
+      // 解析订阅类型（注意检查顺序：先检查更具体的类型）
       const subscriptionTitle = usageResult.subscriptionInfo?.subscriptionTitle || 'Free'
       let subscriptionType = 'Free'
       const titleUpper = subscriptionTitle.toUpperCase()
@@ -3273,14 +3399,14 @@ app.whenReady().then(async () => {
         subscriptionType = 'Teams'
       }
       
-      // 瑙ｆ瀽浣跨敤閲忥紙璇︾粏锛屼娇鐢ㄧ簿纭皬鏁帮級
+      // 解析使用量（详细，使用精确小数）
       const creditUsage = usageResult.usageBreakdownList?.find(b => b.resourceType === 'CREDIT')
       
-      // 鍩虹棰濆害
+      // 基础额度
       const baseLimit = creditUsage?.usageLimitWithPrecision ?? creditUsage?.usageLimit ?? 0
       const baseCurrent = creditUsage?.currentUsageWithPrecision ?? creditUsage?.currentUsage ?? 0
       
-      // 璇曠敤棰濆害
+      // 试用额度
       let freeTrialLimit = 0
       let freeTrialCurrent = 0
       let freeTrialExpiry: string | undefined
@@ -3290,7 +3416,7 @@ app.whenReady().then(async () => {
         freeTrialExpiry = creditUsage.freeTrialInfo.freeTrialExpiry
       }
       
-      // 濂栧姳棰濆害
+      // 奖励额度
       const bonuses: { code: string; name: string; current: number; limit: number; expiresAt?: string }[] = []
       if (creditUsage?.bonuses) {
         for (const bonus of creditUsage.bonuses) {
@@ -3306,10 +3432,11 @@ app.whenReady().then(async () => {
         }
       }
       
-      // 璁＄畻鎬婚搴?      const totalLimit = baseLimit + freeTrialLimit + bonuses.reduce((sum, b) => sum + b.limit, 0)
+      // 计算总额度
+      const totalLimit = baseLimit + freeTrialLimit + bonuses.reduce((sum, b) => sum + b.limit, 0)
       const totalUsed = baseCurrent + freeTrialCurrent + bonuses.reduce((sum, b) => sum + b.current, 0)
       
-      // 璁＄畻閲嶇疆鍓╀綑澶╂暟
+      // 计算重置剩余天数
       let daysRemaining: number | undefined
       let expiresAt: number | undefined
       const nextResetDate = usageResult.nextDateReset
@@ -3363,11 +3490,11 @@ app.whenReady().then(async () => {
       }
     } catch (error) {
       console.error('[Verify] Error:', error)
-      return { success: false, error: error instanceof Error ? error.message : '楠岃瘉澶辫触' }
+      return { success: false, error: error instanceof Error ? error.message : '验证失败' }
     }
   })
 
-  // IPC: 鑾峰彇鏈湴 SSO 缂撳瓨涓綋鍓嶄娇鐢ㄧ殑璐﹀彿淇℃伅
+  // IPC: 获取本地 SSO 缓存中当前使用的账号信息
   ipcMain.handle('get-local-active-account', async () => {
     const os = await import('os')
     const path = await import('path')
@@ -3380,7 +3507,7 @@ app.whenReady().then(async () => {
       const tokenData = JSON.parse(tokenContent)
       
       if (!tokenData.refreshToken) {
-        return { success: false, error: '鏈湴缂撳瓨涓病鏈?refreshToken' }
+        return { success: false, error: '本地缓存中没有 refreshToken' }
       }
       
       return {
@@ -3393,11 +3520,11 @@ app.whenReady().then(async () => {
         }
       }
     } catch {
-      return { success: false, error: '鏃犳硶璇诲彇鏈湴 SSO 缂撳瓨' }
+      return { success: false, error: '无法读取本地 SSO 缓存' }
     }
   })
 
-  // IPC: 浠?Kiro 鏈湴閰嶇疆瀵煎叆鍑瘉
+  // IPC: 从 Kiro 本地配置导入凭证
   ipcMain.handle('load-kiro-credentials', async () => {
     const os = await import('os')
     const path = await import('path')
@@ -3405,7 +3532,7 @@ app.whenReady().then(async () => {
     const fs = await import('fs/promises')
     
     try {
-      // 浠?~/.aws/sso/cache/kiro-auth-token.json 璇诲彇 token
+      // 从 ~/.aws/sso/cache/kiro-auth-token.json 读取 token
       const ssoCache = path.join(os.homedir(), '.aws', 'sso', 'cache')
       const tokenPath = path.join(ssoCache, 'kiro-auth-token.json')
       console.log('[Kiro Credentials] Reading token from:', tokenPath)
@@ -3423,16 +3550,17 @@ app.whenReady().then(async () => {
         const tokenContent = await readFile(tokenPath, 'utf-8')
         tokenData = JSON.parse(tokenContent)
       } catch {
-        return { success: false, error: '鎵句笉鍒?kiro-auth-token.json 鏂囦欢锛岃鍏堝湪 Kiro IDE 涓櫥褰? }
+        return { success: false, error: '找不到 kiro-auth-token.json 文件，请先在 Kiro IDE 中登录' }
       }
       
       if (!tokenData.refreshToken) {
-        return { success: false, error: 'kiro-auth-token.json 涓己灏?refreshToken' }
+        return { success: false, error: 'kiro-auth-token.json 中缺少 refreshToken' }
       }
       
-      // 纭畾 clientIdHash锛氫紭鍏堜娇鐢ㄦ枃浠朵腑鐨勶紝鍚﹀垯璁＄畻榛樿鍊?      let clientIdHash = tokenData.clientIdHash
+      // 确定 clientIdHash：优先使用文件中的，否则计算默认值
+      let clientIdHash = tokenData.clientIdHash
       if (!clientIdHash) {
-        // 浣跨敤鏍囧噯鐨?startUrl 璁＄畻 hash锛堜笌 Kiro 瀹㈡埛绔竴鑷达級
+        // 使用标准的 startUrl 计算 hash（与 Kiro 客户端一致）
         const startUrl = 'https://view.awsapps.com/start'
         clientIdHash = crypto.createHash('sha1')
           .update(JSON.stringify({ startUrl }))
@@ -3440,7 +3568,8 @@ app.whenReady().then(async () => {
         console.log('[Kiro Credentials] Calculated clientIdHash:', clientIdHash)
       }
       
-      // 璇诲彇瀹㈡埛绔敞鍐屼俊鎭?      let clientRegPath = path.join(ssoCache, `${clientIdHash}.json`)
+      // 读取客户端注册信息
+      let clientRegPath = path.join(ssoCache, `${clientIdHash}.json`)
       console.log('[Kiro Credentials] Trying client registration from:', clientRegPath)
       
       let clientData: {
@@ -3452,7 +3581,8 @@ app.whenReady().then(async () => {
         const clientContent = await readFile(clientRegPath, 'utf-8')
         clientData = JSON.parse(clientContent)
       } catch {
-        // 濡傛灉鎵句笉鍒帮紝灏濊瘯鎼滅储鐩綍涓殑鍏朵粬 .json 鏂囦欢锛堟帓闄?kiro-auth-token.json锛?        console.log('[Kiro Credentials] Client file not found, searching cache directory...')
+        // 如果找不到，尝试搜索目录中的其他 .json 文件（排除 kiro-auth-token.json）
+        console.log('[Kiro Credentials] Client file not found, searching cache directory...')
         try {
           const files = await fs.readdir(ssoCache)
           for (const file of files) {
@@ -3466,19 +3596,20 @@ app.whenReady().then(async () => {
                   break
                 }
               } catch {
-                // 蹇界暐鏃犳硶瑙ｆ瀽鐨勬枃浠?              }
+                // 忽略无法解析的文件
+              }
             }
           }
         } catch {
-          // 蹇界暐鐩綍璇诲彇閿欒
+          // 忽略目录读取错误
         }
       }
       
-      // 绀句氦鐧诲綍涓嶉渶瑕?clientId/clientSecret
+      // 社交登录不需要 clientId/clientSecret
       const isSocialAuth = tokenData.authMethod === 'social'
       
       if (!isSocialAuth && (!clientData || !clientData.clientId || !clientData.clientSecret)) {
-        return { success: false, error: '鎵句笉鍒板鎴风娉ㄥ唽鏂囦欢锛岃纭繚宸插湪 Kiro IDE 涓畬鎴愮櫥褰? }
+        return { success: false, error: '找不到客户端注册文件，请确保已在 Kiro IDE 中完成登录' }
       }
       
       console.log(`[Kiro Credentials] Successfully loaded credentials (authMethod: ${tokenData.authMethod || 'IdC'})`)
@@ -3497,11 +3628,11 @@ app.whenReady().then(async () => {
       }
     } catch (error) {
       console.error('[Kiro Credentials] Error:', error)
-      return { success: false, error: error instanceof Error ? error.message : '鏈煡閿欒' }
+      return { success: false, error: error instanceof Error ? error.message : '未知错误' }
     }
   })
 
-  // IPC: 鍒囨崲璐﹀彿 - 鍐欏叆鍑瘉鍒版湰鍦?SSO 缂撳瓨
+  // IPC: 切换账号 - 写入凭证到本地 SSO 缓存
   ipcMain.handle('switch-account', async (_event, credentials: {
     accessToken: string
     refreshToken: string
@@ -3531,8 +3662,8 @@ app.whenReady().then(async () => {
       } = credentials
       let { accessToken } = credentials
 
-      // 鍒囧彿鍓嶅厛鍒锋柊 token锛岀‘淇濆啓鍏ョ殑 accessToken 鏄渶鏂扮殑
-      // Kiro IDE 浼氱洿鎺ヤ娇鐢?accessToken锛堜笉杩囨湡灏变笉鍒锋柊锛夛紝鏃?token 浼氬鑷?Invalid token
+      // 切号前先刷新 token，确保写入的 accessToken 是最新的
+      // Kiro IDE 会直接使用 accessToken（不过期就不刷新），旧 token 会导致 Invalid token
       if (refreshToken) {
         console.log(`[Switch Account] Refreshing token before switch (authMethod: ${authMethod})...`)
         const refreshResult = await refreshTokenByMethod(refreshToken, clientId, clientSecret, region, authMethod)
@@ -3544,27 +3675,28 @@ app.whenReady().then(async () => {
         }
       }
       
-      // 璁＄畻 clientIdHash (涓?Kiro 瀹㈡埛绔竴鑷?
-      // Enterprise 璐︽埛浣跨敤鑷繁鐨?startUrl锛孊uilderId 浣跨敤榛樿鐨?      const effectiveStartUrl = startUrl || 'https://view.awsapps.com/start'
+      // 计算 clientIdHash (与 Kiro 客户端一致)
+      // Enterprise 账户使用自己的 startUrl，BuilderId 使用默认的
+      const effectiveStartUrl = startUrl || 'https://view.awsapps.com/start'
       const clientIdHash = crypto.createHash('sha1')
         .update(JSON.stringify({ startUrl: effectiveStartUrl }))
         .digest('hex')
       
-      // 纭繚鐩綍瀛樺湪
+      // 确保目录存在
       const ssoCache = path.join(os.homedir(), '.aws', 'sso', 'cache')
       await mkdir(ssoCache, { recursive: true })
       
-      // 鏍规嵁 provider 鎺ㄥ profileArn锛堝畼鏂瑰浐瀹氳鍒欙級
+      // 根据 provider 推导 profileArn（官方固定规则）
       const SOCIAL_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK'
       const BUILDER_ID_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
       const resolvedProfileArn = profileArn
         || (authMethod === 'social' || provider === 'Google' || provider === 'Github' ? SOCIAL_PROFILE_ARN : BUILDER_ID_PROFILE_ARN)
 
-      // 鍐欏叆 token 鏂囦欢锛堟牸寮忎笌瀹樻柟 Kiro IDE 瀹屽叏涓€鑷达級
+      // 写入 token 文件（格式与官方 Kiro IDE 完全一致）
       const tokenPath = path.join(ssoCache, 'kiro-auth-token.json')
       const tokenData: Record<string, unknown> = authMethod === 'social'
         ? {
-            // Social 鐧诲綍鏍煎紡锛歛ccessToken, refreshToken, profileArn, expiresAt, authMethod, provider
+            // Social 登录格式：accessToken, refreshToken, profileArn, expiresAt, authMethod, provider
             accessToken,
             refreshToken,
             profileArn: resolvedProfileArn,
@@ -3573,7 +3705,7 @@ app.whenReady().then(async () => {
             provider
           }
         : {
-            // IdC 鐧诲綍鏍煎紡锛歛ccessToken, refreshToken, expiresAt, clientIdHash, authMethod, provider, region
+            // IdC 登录格式：accessToken, refreshToken, expiresAt, clientIdHash, authMethod, provider, region
             accessToken,
             refreshToken,
             expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
@@ -3586,7 +3718,7 @@ app.whenReady().then(async () => {
       await writeFile(tokenPath, JSON.stringify(tokenData, null, 2))
       console.log('[Switch Account] Token saved to:', tokenPath)
       
-      // 鍙湁 IdC 鐧诲綍闇€瑕佸啓鍏ュ鎴风娉ㄥ唽鏂囦欢
+      // 只有 IdC 登录需要写入客户端注册文件
       if (authMethod !== 'social' && clientId && clientSecret) {
         const clientRegPath = path.join(ssoCache, `${clientIdHash}.json`)
         const expiresAt = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString().replace('Z', '')
@@ -3609,11 +3741,13 @@ app.whenReady().then(async () => {
       return { success: true }
     } catch (error) {
       console.error('[Switch Account] Error:', error)
-      return { success: false, error: error instanceof Error ? error.message : '鍒囨崲澶辫触' }
+      return { success: false, error: error instanceof Error ? error.message : '切换失败' }
     }
   })
 
-  // IPC: 鍒囨崲璐﹀彿鍒?Kiro CLI - 鍐欏叆鍑瘉鍒?SQLite 鏁版嵁搴?  // kiro-cli 浣跨敤 ~/.local/share/kiro-cli/data.sqlite3 涓殑 auth_kv 琛?  ipcMain.handle('switch-account-cli', async (_event, credentials: {
+  // IPC: 切换账号到 Kiro CLI - 写入凭证到 SQLite 数据库
+  // kiro-cli 使用 ~/.local/share/kiro-cli/data.sqlite3 中的 auth_kv 表
+  ipcMain.handle('switch-account-cli', async (_event, credentials: {
     accessToken: string
     refreshToken: string
     clientId?: string
@@ -3639,7 +3773,7 @@ app.whenReady().then(async () => {
       } = credentials
       let { accessToken } = credentials
 
-      // 鍒囧彿鍓嶅厛鍒锋柊 token锛堝拰 IDE 鍒囧彿涓€鑷达級
+      // 切号前先刷新 token（和 IDE 切号一致）
       if (refreshToken) {
         const authMethod = (provider === 'Google' || provider === 'Github') ? 'social' : undefined
         console.log(`[Switch CLI] Refreshing token before switch (provider: ${provider})...`)
@@ -3652,7 +3786,8 @@ app.whenReady().then(async () => {
         }
       }
 
-      // kiro-cli SQLite 鏁版嵁搴撹矾寰?      // Windows: %LOCALAPPDATA%\kiro-cli\data.sqlite3
+      // kiro-cli SQLite 数据库路径
+      // Windows: %LOCALAPPDATA%\kiro-cli\data.sqlite3
       // macOS/Linux: ~/.local/share/kiro-cli/data.sqlite3
       const dataDir = process.platform === 'win32'
         ? path.join(os.homedir(), 'AppData', 'Local', 'kiro-cli')
@@ -3660,17 +3795,17 @@ app.whenReady().then(async () => {
       await mkdir(dataDir, { recursive: true })
       const dbPath = path.join(dataDir, 'data.sqlite3')
 
-      // 鍒ゆ柇 token key锛歴ocial 鐧诲綍鐢?social:token锛孖dC 鐧诲綍鐢?odic:token
+      // 判断 token key：social 登录用 social:token，IdC 登录用 odic:token
       const isSocial = provider === 'Google' || provider === 'Github'
       const preferredTokenKey = isSocial ? 'kirocli:social:token' : 'kirocli:odic:token'
       const preferredRegKey = 'kirocli:odic:device-registration'
 
-      // 鏍规嵁 provider 鎺ㄥ profileArn
+      // 根据 provider 推导 profileArn
       const SOCIAL_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK'
       const BUILDER_ID_PROFILE_ARN = 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
       const resolvedProfileArn = profileArn || (isSocial ? SOCIAL_PROFILE_ARN : BUILDER_ID_PROFILE_ARN)
 
-      // 鏋勫缓 token JSON锛坰nake_case 瀛楁鍚嶏紝涓?kiro-cli Rust 缁撴瀯涓€鑷达級
+      // 构建 token JSON（snake_case 字段名，与 kiro-cli Rust 结构一致）
       const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString()
       const tokenData: Record<string, unknown> = {
         access_token: accessToken,
@@ -3681,23 +3816,25 @@ app.whenReady().then(async () => {
       }
       if (scopes) tokenData.scopes = scopes
 
-      // 浣跨敤 sqlite3 鍛戒护琛屾搷浣滐紙璺ㄥ钩鍙板吋瀹癸紝鏃犻渶鍘熺敓妯″潡缂栬瘧锛?      const { execFileSync } = await import('child_process')
+      // 使用 sqlite3 命令行操作（跨平台兼容，无需原生模块编译）
+      const { execFileSync } = await import('child_process')
       const sqlite3Bin = process.platform === 'win32' ? 'sqlite3.exe' : 'sqlite3'
 
-      // 鏋勫缓 SQL 璇彞
+      // 构建 SQL 语句
       const sqlStatements: string[] = [
         'CREATE TABLE IF NOT EXISTS auth_kv (key TEXT PRIMARY KEY, value TEXT);',
         `INSERT OR REPLACE INTO auth_kv (key, value) VALUES ('${preferredTokenKey}', '${JSON.stringify(tokenData).replace(/'/g, "''")}');`
       ]
 
-      // 鍐欏叆 device-registration锛堜粎 IdC 鐧诲綍锛?      if (clientId && clientSecret && !isSocial) {
+      // 写入 device-registration（仅 IdC 登录）
+      if (clientId && clientSecret && !isSocial) {
         const regData = { client_id: clientId, client_secret: clientSecret, region }
         sqlStatements.push(
           `INSERT OR REPLACE INTO auth_kv (key, value) VALUES ('${preferredRegKey}', '${JSON.stringify(regData).replace(/'/g, "''")}');`
         )
       }
 
-      // 娓呴櫎鍏朵粬浼樺厛绾х殑鏃?key
+      // 清除其他优先级的旧 key
       const cliTokenKeys = ['kirocli:social:token', 'kirocli:odic:token', 'codewhisperer:odic:token']
       for (const key of cliTokenKeys) {
         if (key !== preferredTokenKey) {
@@ -3712,7 +3849,7 @@ app.whenReady().then(async () => {
           encoding: 'utf-8'
         })
       } catch (sqlite3Error) {
-        // sqlite3 鍛戒护涓嶅瓨鍦紝灏濊瘯鐢?Node.js 22+ 鐨勫唴缃?SQLite
+        // sqlite3 命令不存在，尝试用 Node.js 22+ 的内置 SQLite
         console.log('[Switch CLI] sqlite3 command not available, trying Node.js built-in SQLite...')
         try {
           const { DatabaseSync } = await import('node:sqlite') as { DatabaseSync: new (path: string) => { exec: (sql: string) => void; close: () => void } }
@@ -3725,7 +3862,7 @@ app.whenReady().then(async () => {
             db.close()
           }
         } catch {
-          throw new Error(`SQLite 鎿嶄綔澶辫触: sqlite3 鍛戒护涓嶅彲鐢?(${(sqlite3Error as Error).message})锛屼笖 Node.js 鍐呯疆 SQLite 涓嶆敮鎸併€傝纭繚绯荤粺瀹夎浜?sqlite3 鍛戒护琛屽伐鍏枫€俙)
+          throw new Error(`SQLite 操作失败: sqlite3 命令不可用 (${(sqlite3Error as Error).message})，且 Node.js 内置 SQLite 不支持。请确保系统安装了 sqlite3 命令行工具。`)
         }
       }
 
@@ -3734,12 +3871,12 @@ app.whenReady().then(async () => {
       return { success: true, dbPath }
     } catch (error) {
       console.error('[Switch CLI] Error:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'CLI 鍒囨崲澶辫触' }
+      return { success: false, error: error instanceof Error ? error.message : 'CLI 切换失败' }
     }
   })
 
 
-  // IPC: 閫€鍑虹櫥褰?- 娓呴櫎鏈湴 SSO 缂撳瓨
+  // IPC: 退出登录 - 清除本地 SSO 缓存
   ipcMain.handle('logout-account', async () => {
     const os = await import('os')
     const path = await import('path')
@@ -3749,9 +3886,11 @@ app.whenReady().then(async () => {
       const ssoCache = path.join(os.homedir(), '.aws', 'sso', 'cache')
       console.log('[Logout] Clearing SSO cache:', ssoCache)
       
-      // 璇诲彇鐩綍涓嬫墍鏈夋枃浠?      const files = await readdir(ssoCache).catch(() => [])
+      // 读取目录下所有文件
+      const files = await readdir(ssoCache).catch(() => [])
       
-      // 鍒犻櫎鎵€鏈夋枃浠?      for (const file of files) {
+      // 删除所有文件
+      for (const file of files) {
         const filePath = path.join(ssoCache, file)
         await unlink(filePath).catch((e) => {
           console.warn('[Logout] Failed to delete file:', filePath, e)
@@ -3762,15 +3901,16 @@ app.whenReady().then(async () => {
       return { success: true, deletedCount: files.length }
     } catch (error) {
       console.error('[Logout] Error:', error)
-      return { success: false, error: error instanceof Error ? error.message : '閫€鍑哄け璐? }
+      return { success: false, error: error instanceof Error ? error.message : '退出失败' }
     }
   })
 
-  // ============ 鎵嬪姩鐧诲綍鐩稿叧 IPC ============
+  // ============ 手动登录相关 IPC ============
 
-  // 瀛樺偍褰撳墠鐧诲綍鐘舵€?  let currentLoginState: {
+  // 存储当前登录状态
+  let currentLoginState: {
     type: 'builderid' | 'social' | 'iamsso'
-    // BuilderId / IAM SSO 鐩稿叧
+    // BuilderId / IAM SSO 相关
     clientId?: string
     clientSecret?: string
     deviceCode?: string
@@ -3778,17 +3918,17 @@ app.whenReady().then(async () => {
     verificationUri?: string
     interval?: number
     expiresAt?: number
-    startUrl?: string // IAM SSO 涓撶敤
+    startUrl?: string // IAM SSO 专用
     redirectUri?: string // IAM SSO Authorization Code flow
     region?: string // IAM SSO region
-    // Social Auth 鐩稿叧
+    // Social Auth 相关
     codeVerifier?: string
     codeChallenge?: string
     oauthState?: string
     provider?: string
   } | null = null
 
-  // IPC: 鍚姩 Builder ID 鎵嬪姩鐧诲綍
+  // IPC: 启动 Builder ID 手动登录
   ipcMain.handle('start-builder-id-login', async (_event, region: string = 'us-east-1') => {
     console.log('[Login] Starting Builder ID login...')
     
@@ -3803,7 +3943,8 @@ app.whenReady().then(async () => {
     ]
 
     try {
-      // Step 1: 娉ㄥ唽 OIDC 瀹㈡埛绔?      console.log('[Login] Step 1: Registering OIDC client...')
+      // Step 1: 注册 OIDC 客户端
+      console.log('[Login] Step 1: Registering OIDC client...')
       const regRes = await fetchWithAppProxy(`${oidcBase}/client/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3818,7 +3959,7 @@ app.whenReady().then(async () => {
 
       if (!regRes.ok) {
         const errText = await regRes.text()
-        return { success: false, error: `娉ㄥ唽瀹㈡埛绔け璐? ${errText}` }
+        return { success: false, error: `注册客户端失败: ${errText}` }
       }
 
       const regData = await regRes.json()
@@ -3826,7 +3967,7 @@ app.whenReady().then(async () => {
       const clientSecret = regData.clientSecret
       console.log('[Login] Client registered:', clientId.substring(0, 30) + '...')
 
-      // Step 2: 鍙戣捣璁惧鎺堟潈
+      // Step 2: 发起设备授权
       console.log('[Login] Step 2: Starting device authorization...')
       const authRes = await fetchWithAppProxy(`${oidcBase}/device_authorization`, {
         method: 'POST',
@@ -3836,14 +3977,15 @@ app.whenReady().then(async () => {
 
       if (!authRes.ok) {
         const errText = await authRes.text()
-        return { success: false, error: `璁惧鎺堟潈澶辫触: ${errText}` }
+        return { success: false, error: `设备授权失败: ${errText}` }
       }
 
       const authData = await authRes.json()
       const { deviceCode, userCode, verificationUri, verificationUriComplete, interval = 5, expiresIn = 600 } = authData
       console.log('[Login] Device code obtained, user_code:', userCode)
 
-      // 淇濆瓨鐧诲綍鐘舵€?      currentLoginState = {
+      // 保存登录状态
+      currentLoginState = {
         type: 'builderid',
         clientId,
         clientSecret,
@@ -3863,20 +4005,21 @@ app.whenReady().then(async () => {
       }
     } catch (error) {
       console.error('[Login] Error:', error)
-      return { success: false, error: error instanceof Error ? error.message : '鐧诲綍澶辫触' }
+      return { success: false, error: error instanceof Error ? error.message : '登录失败' }
     }
   })
 
-  // IPC: 杞 Builder ID 鎺堟潈鐘舵€?  ipcMain.handle('poll-builder-id-auth', async (_event, region: string = 'us-east-1') => {
+  // IPC: 轮询 Builder ID 授权状态
+  ipcMain.handle('poll-builder-id-auth', async (_event, region: string = 'us-east-1') => {
     console.log('[Login] Polling for authorization...')
 
     if (!currentLoginState || currentLoginState.type !== 'builderid') {
-      return { success: false, error: '娌℃湁杩涜涓殑鐧诲綍' }
+      return { success: false, error: '没有进行中的登录' }
     }
 
     if (Date.now() > (currentLoginState.expiresAt || 0)) {
       currentLoginState = null
-      return { success: false, error: '鎺堟潈宸茶繃鏈燂紝璇烽噸鏂板紑濮? }
+      return { success: false, error: '授权已过期，请重新开始' }
     }
 
     const oidcBase = `https://oidc.${region}.amazonaws.com`
@@ -3924,31 +4067,32 @@ app.whenReady().then(async () => {
           return { success: true, completed: false, status: 'slow_down' }
         } else if (error === 'expired_token') {
           currentLoginState = null
-          return { success: false, error: '璁惧鐮佸凡杩囨湡' }
+          return { success: false, error: '设备码已过期' }
         } else if (error === 'access_denied') {
           currentLoginState = null
-          return { success: false, error: '鐢ㄦ埛鎷掔粷鎺堟潈' }
+          return { success: false, error: '用户拒绝授权' }
         } else {
           currentLoginState = null
-          return { success: false, error: `鎺堟潈閿欒: ${error}` }
+          return { success: false, error: `授权错误: ${error}` }
         }
       } else {
-        return { success: false, error: `鏈煡鍝嶅簲: ${tokenRes.status}` }
+        return { success: false, error: `未知响应: ${tokenRes.status}` }
       }
     } catch (error) {
       console.error('[Login] Poll error:', error)
-      return { success: false, error: error instanceof Error ? error.message : '杞澶辫触' }
+      return { success: false, error: error instanceof Error ? error.message : '轮询失败' }
     }
   })
 
-  // IPC: 鍙栨秷 Builder ID 鐧诲綍
+  // IPC: 取消 Builder ID 登录
   ipcMain.handle('cancel-builder-id-login', async () => {
     console.log('[Login] Cancelling Builder ID login...')
     currentLoginState = null
     return { success: true }
   })
 
-  // IAM SSO 鏈湴鏈嶅姟鍣ㄥ拰鐘舵€?  let iamSsoServer: ReturnType<typeof import('http').createServer> | null = null
+  // IAM SSO 本地服务器和状态
+  let iamSsoServer: ReturnType<typeof import('http').createServer> | null = null
   let iamSsoResult: {
     completed: boolean
     success: boolean
@@ -3961,14 +4105,14 @@ app.whenReady().then(async () => {
     error?: string
   } | null = null
 
-  // IPC: 鍚姩 IAM Identity Center SSO 鐧诲綍 (浣跨敤 Authorization Code Grant with PKCE)
+  // IPC: 启动 IAM Identity Center SSO 登录 (使用 Authorization Code Grant with PKCE)
   ipcMain.handle('start-iam-sso-login', async (_event, startUrl: string, region: string = 'us-east-1') => {
     console.log('[Login] Starting IAM Identity Center SSO login (Authorization Code flow)...')
     console.log('[Login] Start URL:', startUrl)
     
-    // 楠岃瘉 startUrl 鏍煎紡
+    // 验证 startUrl 格式
     if (!startUrl || !startUrl.startsWith('https://')) {
-      return { success: false, error: 'SSO Start URL 蹇呴』浠?https:// 寮€澶? }
+      return { success: false, error: 'SSO Start URL 必须以 https:// 开头' }
     }
     
     const crypto = await import('crypto')
@@ -3984,7 +4128,7 @@ app.whenReady().then(async () => {
     ]
 
     try {
-      // Step 1: 娉ㄥ唽 OIDC 瀹㈡埛绔?(浣跨敤 authorization_code grant type)
+      // Step 1: 注册 OIDC 客户端 (使用 authorization_code grant type)
       console.log('[Login] Step 1: Registering OIDC client...')
       const regRes = await fetchWithAppProxy(`${oidcBase}/client/register`, {
         method: 'POST',
@@ -4006,11 +4150,11 @@ app.whenReady().then(async () => {
         if (errText.includes('UnauthorizedException') || errText.includes('access denied')) {
           return { 
             success: false, 
-            error: '鎺堟潈澶辫触锛氭偍鐨勭粍缁囧彲鑳芥湭閰嶇疆 Amazon Q Developer 璁块棶鏉冮檺銆傝鑱旂郴缁勭粐绠＄悊鍛樺湪 IAM Identity Center 涓惎鐢ㄧ浉鍏虫潈闄愩€? 
+            error: '授权失败：您的组织可能未配置 Amazon Q Developer 访问权限。请联系组织管理员在 IAM Identity Center 中启用相关权限。' 
           }
         }
         
-        return { success: false, error: `娉ㄥ唽瀹㈡埛绔け璐? ${errText}` }
+        return { success: false, error: `注册客户端失败: ${errText}` }
       }
 
       const regData = await regRes.json()
@@ -4018,20 +4162,22 @@ app.whenReady().then(async () => {
       const clientSecret = regData.clientSecret
       console.log('[Login] Client registered:', clientId.substring(0, 30) + '...')
 
-      // Step 2: 鐢熸垚 PKCE 鍜?state
+      // Step 2: 生成 PKCE 和 state
       const codeVerifier = crypto.randomBytes(32).toString('base64url')
       const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url')
       const state = crypto.randomUUID()
 
-      // Step 3: 鍚姩鏈湴 HTTP 鏈嶅姟鍣ㄦ帴鏀跺洖璋?      console.log('[Login] Step 2: Starting local OAuth callback server...')
+      // Step 3: 启动本地 HTTP 服务器接收回调
+      console.log('[Login] Step 2: Starting local OAuth callback server...')
       
-      // 鍏抽棴涔嬪墠鐨勬湇鍔″櫒
+      // 关闭之前的服务器
       if (iamSsoServer) {
         iamSsoServer.close()
         iamSsoServer = null
       }
 
-      // 鎵句竴涓彲鐢ㄧ鍙?      const port = await new Promise<number>((resolve, reject) => {
+      // 找一个可用端口
+      const port = await new Promise<number>((resolve, reject) => {
         const server = http.createServer()
         server.listen(0, '127.0.0.1', () => {
           const addr = server.address()
@@ -4039,7 +4185,7 @@ app.whenReady().then(async () => {
             const p = addr.port
             server.close(() => resolve(p))
           } else {
-            reject(new Error('鏃犳硶鑾峰彇绔彛'))
+            reject(new Error('无法获取端口'))
           }
         })
       })
@@ -4047,10 +4193,11 @@ app.whenReady().then(async () => {
       const redirectUri = `http://127.0.0.1:${port}/oauth/callback`
       console.log('[Login] Redirect URI:', redirectUri)
 
-      // 閲嶇疆缁撴灉
+      // 重置结果
       iamSsoResult = null
 
-      // 鍒涘缓鍥炶皟鏈嶅姟鍣?      iamSsoServer = http.createServer(async (req, res) => {
+      // 创建回调服务器
+      iamSsoServer = http.createServer(async (req, res) => {
         const url = new URL(req.url || '', `http://127.0.0.1:${port}`)
         
         if (url.pathname === '/oauth/callback') {
@@ -4060,23 +4207,23 @@ app.whenReady().then(async () => {
           
           if (error) {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-            res.end('<html><body><h1>鎺堟潈澶辫触</h1><p>鎮ㄥ彲浠ュ叧闂绐楀彛銆?/p></body></html>')
-            iamSsoResult = { completed: true, success: false, error: `鎺堟潈澶辫触: ${error}` }
+            res.end('<html><body><h1>授权失败</h1><p>您可以关闭此窗口。</p></body></html>')
+            iamSsoResult = { completed: true, success: false, error: `授权失败: ${error}` }
             return
           }
           
           if (returnedState !== state) {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-            res.end('<html><body><h1>鎺堟潈澶辫触</h1><p>鐘舵€佷笉鍖归厤锛岃閲嶈瘯銆?/p></body></html>')
-            iamSsoResult = { completed: true, success: false, error: '鐘舵€佷笉鍖归厤' }
+            res.end('<html><body><h1>授权失败</h1><p>状态不匹配，请重试。</p></body></html>')
+            iamSsoResult = { completed: true, success: false, error: '状态不匹配' }
             return
           }
           
           if (code) {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-            res.end('<html><body><h1>鎺堟潈鎴愬姛锛?/h1><p>姝ｅ湪鑾峰彇浠ょ墝锛岃绋嶅€?..</p></body></html>')
+            res.end('<html><body><h1>授权成功！</h1><p>正在获取令牌，请稍候...</p></body></html>')
             
-            // 鑷姩瀹屾垚 token 浜ゆ崲
+            // 自动完成 token 交换
             try {
               const tokenRes = await fetchWithAppProxy(`${oidcBase}/token`, {
                 method: 'POST',
@@ -4094,7 +4241,7 @@ app.whenReady().then(async () => {
               if (!tokenRes.ok) {
                 const errText = await tokenRes.text()
                 console.error('[Login] Token exchange failed:', tokenRes.status, errText)
-                iamSsoResult = { completed: true, success: false, error: `鑾峰彇 Token 澶辫触: ${errText}` }
+                iamSsoResult = { completed: true, success: false, error: `获取 Token 失败: ${errText}` }
               } else {
                 const tokenData = await tokenRes.json()
                 console.log('[Login] IAM SSO Authorization successful!')
@@ -4114,13 +4261,13 @@ app.whenReady().then(async () => {
               iamSsoResult = { 
                 completed: true, 
                 success: false, 
-                error: tokenError instanceof Error ? tokenError.message : '鑾峰彇 Token 澶辫触' 
+                error: tokenError instanceof Error ? tokenError.message : '获取 Token 失败' 
               }
             }
           } else {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-            res.end('<html><body><h1>鎺堟潈澶辫触</h1><p>鏈敹鍒版巿鏉冪爜銆?/p></body></html>')
-            iamSsoResult = { completed: true, success: false, error: '鏈敹鍒版巿鏉冪爜' }
+            res.end('<html><body><h1>授权失败</h1><p>未收到授权码。</p></body></html>')
+            iamSsoResult = { completed: true, success: false, error: '未收到授权码' }
           }
         } else {
           res.writeHead(404)
@@ -4132,7 +4279,8 @@ app.whenReady().then(async () => {
         console.log('[Login] OAuth callback server listening on port', port)
       })
 
-      // Step 4: 鏋勫缓鎺堟潈 URL 骞舵墦寮€娴忚鍣?      const authorizeParams = new URLSearchParams({
+      // Step 4: 构建授权 URL 并打开浏览器
+      const authorizeParams = new URLSearchParams({
         response_type: 'code',
         client_id: clientId,
         redirect_uri: redirectUri,
@@ -4144,7 +4292,8 @@ app.whenReady().then(async () => {
       const authorizeUrl = `${oidcBase}/authorize?${authorizeParams.toString()}`
       console.log('[Login] Opening browser for authorization...')
 
-      // 淇濆瓨鐧诲綍鐘舵€?      currentLoginState = {
+      // 保存登录状态
+      currentLoginState = {
         type: 'iamsso',
         clientId,
         clientSecret,
@@ -4155,21 +4304,22 @@ app.whenReady().then(async () => {
         expiresAt: Date.now() + 600000
       }
 
-      // 杩斿洖鎺堟潈 URL锛屽墠绔細鎵撳紑娴忚鍣?      return {
+      // 返回授权 URL，前端会打开浏览器
+      return {
         success: true,
         authorizeUrl,
         expiresIn: 600
       }
     } catch (error) {
       console.error('[Login] Error:', error)
-      return { success: false, error: error instanceof Error ? error.message : '鐧诲綍澶辫触' }
+      return { success: false, error: error instanceof Error ? error.message : '登录失败' }
     }
   })
 
-  // IPC: 杞 IAM SSO 鎺堟潈鐘舵€?(妫€鏌ユ湰鍦版湇鍔″櫒鏄惁鏀跺埌鍥炶皟)
+  // IPC: 轮询 IAM SSO 授权状态 (检查本地服务器是否收到回调)
   ipcMain.handle('poll-iam-sso-auth', async () => {
     if (!currentLoginState || currentLoginState.type !== 'iamsso') {
-      return { success: false, error: '娌℃湁杩涜涓殑 IAM SSO 鐧诲綍' }
+      return { success: false, error: '没有进行中的 IAM SSO 登录' }
     }
 
     if (Date.now() > (currentLoginState.expiresAt || 0)) {
@@ -4179,14 +4329,15 @@ app.whenReady().then(async () => {
       }
       iamSsoResult = null
       currentLoginState = null
-      return { success: false, error: '鎺堟潈宸茶繃鏈燂紝璇烽噸鏂板紑濮? }
+      return { success: false, error: '授权已过期，请重新开始' }
     }
 
-    // 妫€鏌ユ槸鍚﹀凡鏀跺埌鍥炶皟骞跺畬鎴?token 浜ゆ崲
+    // 检查是否已收到回调并完成 token 交换
     if (iamSsoResult) {
       const result = { ...iamSsoResult }
       if (result.completed) {
-        // 娓呯悊鐘舵€?        if (iamSsoServer) {
+        // 清理状态
+        if (iamSsoServer) {
           iamSsoServer.close()
           iamSsoServer = null
         }
@@ -4196,11 +4347,11 @@ app.whenReady().then(async () => {
       return result
     }
 
-    // 杩樺湪绛夊緟鍥炶皟
+    // 还在等待回调
     return { success: true, completed: false, status: 'pending' }
   })
 
-  // IPC: 鍙栨秷 IAM SSO 鐧诲綍
+  // IPC: 取消 IAM SSO 登录
   ipcMain.handle('cancel-iam-sso-login', async () => {
     console.log('[Login] Cancelling IAM SSO login...')
     if (iamSsoServer) {
@@ -4212,18 +4363,18 @@ app.whenReady().then(async () => {
     return { success: true }
   })
 
-  // IPC: 鍚姩 Social Auth 鐧诲綍 (Google/GitHub)
+  // IPC: 启动 Social Auth 登录 (Google/GitHub)
   ipcMain.handle('start-social-login', async (_event, provider: 'Google' | 'Github', usePrivateMode?: boolean) => {
     console.log(`[Login] Starting ${provider} Social Auth login... (privateMode: ${usePrivateMode})`)
     
     const crypto = await import('crypto')
 
-    // 鐢熸垚 PKCE
+    // 生成 PKCE
     const codeVerifier = crypto.randomBytes(64).toString('base64url').substring(0, 128)
     const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url')
     const oauthState = crypto.randomBytes(32).toString('base64url')
 
-    // 鏋勫缓鐧诲綍 URL
+    // 构建登录 URL
     const redirectUri = 'kiro://kiro.kiroAgent/authenticate-success'
     const loginUrl = new URL(`${KIRO_AUTH_ENDPOINT}/login`)
     loginUrl.searchParams.set('idp', provider)
@@ -4232,7 +4383,8 @@ app.whenReady().then(async () => {
     loginUrl.searchParams.set('code_challenge_method', 'S256')
     loginUrl.searchParams.set('state', oauthState)
 
-    // 淇濆瓨鐧诲綍鐘舵€?    currentLoginState = {
+    // 保存登录状态
+    currentLoginState = {
       type: 'social',
       codeVerifier,
       codeChallenge,
@@ -4243,7 +4395,7 @@ app.whenReady().then(async () => {
     const urlStr = loginUrl.toString()
     console.log(`[Login] Opening browser for ${provider} login...`)
 
-    // 鏍规嵁鏄惁浣跨敤闅愮妯″紡閫夋嫨鎵撳紑鏂瑰紡
+    // 根据是否使用隐私模式选择打开方式
     if (usePrivateMode) {
       openBrowserInPrivateMode(urlStr)
     } else {
@@ -4257,18 +4409,18 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 浜ゆ崲 Social Auth token
+  // IPC: 交换 Social Auth token
   ipcMain.handle('exchange-social-token', async (_event, code: string, state: string) => {
     console.log('[Login] Exchanging Social Auth token...')
 
     if (!currentLoginState || currentLoginState.type !== 'social') {
-      return { success: false, error: '娌℃湁杩涜涓殑绀句氦鐧诲綍' }
+      return { success: false, error: '没有进行中的社交登录' }
     }
 
-    // 楠岃瘉 state
+    // 验证 state
     if (state !== currentLoginState.oauthState) {
       currentLoginState = null
-      return { success: false, error: '鐘舵€佸弬鏁颁笉鍖归厤锛屽彲鑳藉瓨鍦ㄥ畨鍏ㄩ闄? }
+      return { success: false, error: '状态参数不匹配，可能存在安全风险' }
     }
 
     const { codeVerifier, provider } = currentLoginState
@@ -4288,7 +4440,7 @@ app.whenReady().then(async () => {
       if (!tokenRes.ok) {
         const errText = await tokenRes.text()
         currentLoginState = null
-        return { success: false, error: `Token 浜ゆ崲澶辫触: ${errText}` }
+        return { success: false, error: `Token 交换失败: ${errText}` }
       }
 
       const tokenData = await tokenRes.json()
@@ -4309,24 +4461,24 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.error('[Login] Token exchange error:', error)
       currentLoginState = null
-      return { success: false, error: error instanceof Error ? error.message : 'Token 浜ゆ崲澶辫触' }
+      return { success: false, error: error instanceof Error ? error.message : 'Token 交换失败' }
     }
   })
 
-  // IPC: 鍙栨秷 Social Auth 鐧诲綍
+  // IPC: 取消 Social Auth 登录
   ipcMain.handle('cancel-social-login', async () => {
     console.log('[Login] Cancelling Social Auth login...')
     currentLoginState = null
     return { success: true }
   })
 
-  // IPC: 璁剧疆浠ｇ悊
+  // IPC: 设置代理
   ipcMain.handle('set-proxy', async (_event, enabled: boolean, url: string) => {
     console.log(`[IPC] set-proxy called: enabled=${enabled}, url=${url}`)
     try {
       applyProxySettings(enabled, url)
       
-      // 鍚屾椂璁剧疆 Electron 鐨?session 浠ｇ悊
+      // 同时设置 Electron 的 session 代理
       if (mainWindow) {
         const session = mainWindow.webContents.session
         if (enabled && url) {
@@ -4343,9 +4495,9 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ============ Kiro 璁剧疆绠＄悊 IPC ============
+  // ============ Kiro 设置管理 IPC ============
 
-  // IPC: 鑾峰彇 Kiro 璁剧疆
+  // IPC: 获取 Kiro 设置
   ipcMain.handle('get-kiro-settings', async () => {
     try {
       const os = await import('os')
@@ -4361,14 +4513,14 @@ app.whenReady().then(async () => {
       let mcpConfig = { mcpServers: {} }
       let steeringFiles: string[] = []
       
-      // 璇诲彇 Kiro settings.json (VS Code 椋庢牸 JSON锛屽彲鑳芥湁灏鹃殢閫楀彿)
+      // 读取 Kiro settings.json (VS Code 风格 JSON，可能有尾随逗号)
       if (fs.existsSync(kiroSettingsPath)) {
         const content = fs.readFileSync(kiroSettingsPath, 'utf-8')
-        // 绉婚櫎灏鹃殢閫楀彿鍜屾敞閲婁互鍏煎鏍囧噯 JSON
+        // 移除尾随逗号和注释以兼容标准 JSON
         const cleanedContent = content
-          .replace(/\/\/.*$/gm, '') // 绉婚櫎鍗曡娉ㄩ噴
-          .replace(/\/\*[\s\S]*?\*\//g, '') // 绉婚櫎澶氳娉ㄩ噴
-          .replace(/,(\s*[}\]])/g, '$1') // 绉婚櫎灏鹃殢閫楀彿
+          .replace(/\/\/.*$/gm, '') // 移除单行注释
+          .replace(/\/\*[\s\S]*?\*\//g, '') // 移除多行注释
+          .replace(/,(\s*[}\]])/g, '$1') // 移除尾随逗号
         const parsed = JSON.parse(cleanedContent)
         settings = {
           modelSelection: parsed['kiroAgent.modelSelection'],
@@ -4391,13 +4543,13 @@ app.whenReady().then(async () => {
         }
       }
       
-      // 璇诲彇 MCP 閰嶇疆
+      // 读取 MCP 配置
       if (fs.existsSync(kiroMcpUserPath)) {
         const mcpContent = fs.readFileSync(kiroMcpUserPath, 'utf-8')
         mcpConfig = JSON.parse(mcpContent)
       }
       
-      // 璇诲彇 Steering 鏂囦欢鍒楄〃
+      // 读取 Steering 文件列表
       if (fs.existsSync(kiroSteeringPath)) {
         const files = fs.readdirSync(kiroSteeringPath)
         steeringFiles = files.filter(f => f.endsWith('.md'))
@@ -4414,13 +4566,15 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇 Kiro 鍙敤妯″瀷鍒楄〃锛堜娇鐢ㄥ綋鍓嶈处鍙疯皟鐢ㄥ畼鏂?API锛?  ipcMain.handle('get-kiro-available-models', async () => {
+  // IPC: 获取 Kiro 可用模型列表（使用当前账号调用官方 API）
+  ipcMain.handle('get-kiro-available-models', async () => {
     try {
       if (!store) return { models: [] }
       const accountData = store.get('accountData') as { accounts?: Record<string, any> } | undefined
       if (!accountData?.accounts) return { models: [] }
 
-      // 浼樺厛浣跨敤褰撳墠婵€娲昏处鍙凤紙isActive锛夛紝鍏舵浣跨敤绗竴涓?active 涓旀湁 accessToken 鐨勮处鍙?      const allAccounts = Object.values(accountData.accounts) as any[]
+      // 优先使用当前激活账号（isActive），其次使用第一个 active 且有 accessToken 的账号
+      const allAccounts = Object.values(accountData.accounts) as any[]
       const account = allAccounts.find((acc: any) => acc.isActive && acc.credentials?.accessToken)
         || allAccounts.find((acc: any) => acc.status === 'active' && acc.credentials?.accessToken)
       if (!account) return { models: [] }
@@ -4452,7 +4606,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 淇濆瓨 Kiro 璁剧疆
+  // IPC: 保存 Kiro 设置
   ipcMain.handle('save-kiro-settings', async (_event, settings: Record<string, unknown>) => {
     try {
       const os = await import('os')
@@ -4465,15 +4619,16 @@ app.whenReady().then(async () => {
       let existingSettings = {}
       if (fs.existsSync(kiroSettingsPath)) {
         const content = fs.readFileSync(kiroSettingsPath, 'utf-8')
-        // 绉婚櫎灏鹃殢閫楀彿鍜屾敞閲婁互鍏煎鏍囧噯 JSON
+        // 移除尾随逗号和注释以兼容标准 JSON
         const cleanedContent = content
-          .replace(/\/\/.*$/gm, '') // 绉婚櫎鍗曡娉ㄩ噴
-          .replace(/\/\*[\s\S]*?\*\//g, '') // 绉婚櫎澶氳娉ㄩ噴
-          .replace(/,(\s*[}\]])/g, '$1') // 绉婚櫎灏鹃殢閫楀彿
+          .replace(/\/\/.*$/gm, '') // 移除单行注释
+          .replace(/\/\*[\s\S]*?\*\//g, '') // 移除多行注释
+          .replace(/,(\s*[}\]])/g, '$1') // 移除尾随逗号
         existingSettings = JSON.parse(cleanedContent)
       }
       
-      // 鏄犲皠璁剧疆鍒?Kiro 鐨勬牸寮?      const kiroSettings = {
+      // 映射设置到 Kiro 的格式
+      const kiroSettings = {
         ...existingSettings,
         'kiroAgent.modelSelection': settings.modelSelection,
         'kiroAgent.agentAutonomy': settings.agentAutonomy,
@@ -4494,7 +4649,7 @@ app.whenReady().then(async () => {
         'kiroAgent.notifications.billing': settings.notificationsBilling
       }
       
-      // 纭繚鐩綍瀛樺湪
+      // 确保目录存在
       const dir = path.dirname(kiroSettingsPath)
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true })
@@ -4508,7 +4663,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鎵撳紑 Kiro MCP 閰嶇疆鏂囦欢
+  // IPC: 打开 Kiro MCP 配置文件
   ipcMain.handle('open-kiro-mcp-config', async (_event, type: 'user' | 'workspace') => {
     try {
       const os = await import('os')
@@ -4519,11 +4674,12 @@ app.whenReady().then(async () => {
       if (type === 'user') {
         configPath = path.join(homeDir, '.kiro', 'settings', 'mcp.json')
       } else {
-        // 宸ヤ綔鍖洪厤缃紝鎵撳紑褰撳墠宸ヤ綔鍖虹殑 .kiro/settings/mcp.json
+        // 工作区配置，打开当前工作区的 .kiro/settings/mcp.json
         configPath = path.join(process.cwd(), '.kiro', 'settings', 'mcp.json')
       }
       
-      // 濡傛灉鏂囦欢涓嶅瓨鍦紝鍒涘缓绌洪厤缃?      const fs = await import('fs')
+      // 如果文件不存在，创建空配置
+      const fs = await import('fs')
       if (!fs.existsSync(configPath)) {
         const dir = path.dirname(configPath)
         if (!fs.existsSync(dir)) {
@@ -4540,7 +4696,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鎵撳紑 Kiro Steering 鐩綍
+  // IPC: 打开 Kiro Steering 目录
   ipcMain.handle('open-kiro-steering-folder', async () => {
     try {
       const os = await import('os')
@@ -4549,7 +4705,8 @@ app.whenReady().then(async () => {
       const homeDir = os.homedir()
       const steeringPath = path.join(homeDir, '.kiro', 'steering')
       
-      // 濡傛灉鐩綍涓嶅瓨鍦紝鍒涘缓瀹?      if (!fs.existsSync(steeringPath)) {
+      // 如果目录不存在，创建它
+      if (!fs.existsSync(steeringPath)) {
         fs.mkdirSync(steeringPath, { recursive: true })
       }
       
@@ -4561,7 +4718,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鎵撳紑 Kiro settings.json 鏂囦欢
+  // IPC: 打开 Kiro settings.json 文件
   ipcMain.handle('open-kiro-settings-file', async () => {
     try {
       const os = await import('os')
@@ -4570,7 +4727,7 @@ app.whenReady().then(async () => {
       const homeDir = os.homedir()
       const settingsPath = path.join(homeDir, 'AppData', 'Roaming', 'Kiro', 'User', 'settings.json')
       
-      // 濡傛灉鏂囦欢涓嶅瓨鍦紝鍒涘缓榛樿閰嶇疆
+      // 如果文件不存在，创建默认配置
       if (!fs.existsSync(settingsPath)) {
         const dir = path.dirname(settingsPath)
         if (!fs.existsSync(dir)) {
@@ -4591,7 +4748,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鎵撳紑鎸囧畾鐨?Steering 鏂囦欢
+  // IPC: 打开指定的 Steering 文件
   ipcMain.handle('open-kiro-steering-file', async (_event, filename: string) => {
     try {
       const os = await import('os')
@@ -4607,7 +4764,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍒涘缓榛樿鐨?rules.md 鏂囦欢
+  // IPC: 创建默认的 rules.md 文件
   ipcMain.handle('create-kiro-default-rules', async () => {
     try {
       const os = await import('os')
@@ -4617,45 +4774,70 @@ app.whenReady().then(async () => {
       const steeringPath = path.join(homeDir, '.kiro', 'steering')
       const rulesPath = path.join(steeringPath, 'rules.md')
       
-      // 纭繚鐩綍瀛樺湪
+      // 确保目录存在
       if (!fs.existsSync(steeringPath)) {
         fs.mkdirSync(steeringPath, { recursive: true })
       }
       
-      // 榛樿瑙勫垯鍐呭
-      const defaultContent = `# Role: 楂樼骇杞欢寮€鍙戝姪鎵?涓€銆佺郴缁熶负Windows10
-浜屻€佽皟寮忔枃浠躲€佹祴璇曡剼鏈€乼est鐩稿叧鏂囦欢閮芥斁鍦╰est鏂囦欢澶归噷闈紝md鏂囦欢鏀惧湪docs鏂囦欢澶归噷闈?# 鏍稿績鍘熷垯
+      // 默认规则内容
+      const defaultContent = `# Role: 高级软件开发助手
+一、系统为Windows10
+二、调式文件、测试脚本、test相关文件都放在test文件夹里面，md文件放在docs文件夹里面
+# 核心原则
 
 
-## 1. 娌熼€氫笌鍗忎綔
-- **璇氬疄浼樺厛**锛氬湪浠讳綍鎯呭喌涓嬮兘涓ョ鐚滄祴鎴栦吉瑁呫€傚綋闇€姹備笉鏄庣‘銆佸瓨鍦ㄦ妧鏈闄╂垨閬囧埌鐭ヨ瘑鐩插尯鏃讹紝蹇呴』鍋滄宸ヤ綔锛屽苟绔嬪嵆鍚戠敤鎴锋緞娓呫€?- **鎶€鏈敾鍧?*锛氶潰瀵规妧鏈毦棰樻椂锛岄瑕佺洰鏍囨槸瀵绘壘骞舵彁鍑洪珮璐ㄩ噺鐨勮В鍐虫柟妗堛€傚彧鏈夊湪鎵€鏈夊彲琛屾柟妗堝潎琚瘎浼板悗锛屾墠鑳戒笌鐢ㄦ埛鎺㈣闄嶇骇鎴栨浛鎹㈡柟妗堛€?- **鎵瑰垽鎬ф€濈淮**锛氬湪鎵ц浠诲姟鏃讹紝濡傛灉鍙戠幇褰撳墠闇€姹傚瓨鍦ㄦ妧鏈檺鍒躲€佹綔鍦ㄩ闄╂垨鏈夋洿浼樼殑瀹炵幇璺緞锛屽繀椤讳富鍔ㄥ悜鐢ㄦ埛鎻愬嚭浣犵殑瑙佽В鍜屾敼杩涘缓璁€?- **璇█瑕佹眰**锛氭€濊€冨拰鍥炵瓟鏃舵€绘槸浣跨敤涓枃杩涜鍥炲銆?
+## 1. 沟通与协作
+- **诚实优先**：在任何情况下都严禁猜测或伪装。当需求不明确、存在技术风险或遇到知识盲区时，必须停止工作，并立即向用户澄清。
+- **技术攻坚**：面对技术难题时，首要目标是寻找并提出高质量的解决方案。只有在所有可行方案均被评估后，才能与用户探讨降级或替换方案。
+- **批判性思维**：在执行任务时，如果发现当前需求存在技术限制、潜在风险或有更优的实现路径，必须主动向用户提出你的见解和改进建议。
+- **语言要求**：思考和回答时总是使用中文进行回复。
 
-## 2. 鏋舵瀯璁捐
-- **妯″潡鍖栬璁?*锛氭墍鏈夎璁￠兘蹇呴』閬靛惊鍔熻兘瑙ｈ€︺€佽亴璐ｅ崟涓€鐨勫師鍒欍€備弗鏍奸伒瀹圫OLID鍜孌RY鍘熷垯銆?- **鍓嶇灮鎬ф€濈淮**锛氬湪璁捐鏃跺繀椤昏€冭檻鏈潵鐨勫彲鎵╁睍鎬у拰鍙淮鎶ゆ€э紝纭繚瑙ｅ喅鏂规鑳藉铻嶅叆椤圭洰鐨勬暣浣撴灦鏋勩€?- **鎶€鏈€哄姟浼樺厛**锛氬湪杩涜閲嶆瀯鎴栦紭鍖栨椂锛屼紭鍏堝鐞嗗绯荤粺绋冲畾鎬у拰鍙淮鎶ゆ€у奖鍝嶆渶澶х殑鎶€鏈€哄姟鍜屽熀纭€鏋舵瀯闂銆?
 
-## 3. 浠ｇ爜涓庝氦浠樼墿璐ㄩ噺鏍囧噯
-### 缂栧啓瑙勮寖
-- **鏋舵瀯瑙嗚**锛氬缁堜粠鏁翠綋椤圭洰鏋舵瀯鍑哄彂缂栧啓浠ｇ爜锛岀‘淇濅唬鐮佺墖娈佃兘澶熸棤缂濋泦鎴愶紝鑰屼笉鏄绔嬬殑鍔熻兘銆?- **闆舵妧鏈€哄姟**锛氫弗绂佸垱寤轰换浣曞舰寮忕殑鎶€鏈€哄姟锛屽寘鎷絾涓嶉檺浜庯細涓存椂鏂囦欢銆佺‖缂栫爜鍊笺€佽亴璐ｄ笉娓呯殑妯″潡鎴栧嚱鏁般€?- **闂鏆撮湶**锛氱姝㈡坊鍔犱换浣曠敤浜庢帺鐩栨垨缁曡繃閿欒鐨刦allback鏈哄埗銆備唬鐮佸簲璁捐涓哄揩閫熷け璐ワ紙Fail-Fast锛夛紝纭繚闂鍦ㄧ涓€鏃堕棿琚彂鐜般€?
+## 2. 架构设计
+- **模块化设计**：所有设计都必须遵循功能解耦、职责单一的原则。严格遵守SOLID和DRY原则。
+- **前瞻性思维**：在设计时必须考虑未来的可扩展性和可维护性，确保解决方案能够融入项目的整体架构。
+- **技术债务优先**：在进行重构或优化时，优先处理对系统稳定性和可维护性影响最大的技术债务和基础架构问题。
 
-### 璐ㄩ噺瑕佹眰
-- **鍙鎬?*锛氫娇鐢ㄦ竻鏅般€佹湁鎰忎箟鐨勫彉閲忓悕鍜屽嚱鏁板悕銆備唬鐮侀€昏緫蹇呴』娓呮櫚鏄撴噦锛屽苟杈呬互蹇呰鐨勬敞閲娿€?- **瑙勮寖閬靛惊**锛氫弗鏍奸伒寰洰鏍囩紪绋嬭瑷€鐨勭ぞ鍖烘渶浣冲疄璺靛拰瀹樻柟缂栫爜瑙勮寖銆?- **鍋ュ．鎬?*锛氬繀椤诲寘鍚厖鍒嗙殑閿欒澶勭悊閫昏緫鍜岃竟鐣屾潯浠舵鏌ャ€?- **鎬ц兘鎰忚瘑**锛氬湪淇濊瘉浠ｇ爜璐ㄩ噺鍜屽彲璇绘€х殑鍓嶆彁涓嬶紝瀵规€ц兘鏁忔劅閮ㄥ垎杩涜鍚堢悊浼樺寲锛岄伩鍏嶄笉蹇呰鐨勮绠楀鏉傚害鍜岃祫婧愭秷鑰椼€?
 
-### 浜や粯鐗╄鑼?- **鏃犳枃妗?*锛氶櫎闈炵敤鎴锋槑纭姹傦紝鍚﹀垯涓嶈鍒涘缓浠讳綍Markdown鏂囨。鎴栧叾浠栧舰寮忕殑璇存槑鏂囨。銆?- **鏃犳祴璇?*锛氶櫎闈炵敤鎴锋槑纭姹傦紝鍚﹀垯涓嶈缂栧啓鍗曞厓娴嬭瘯鎴栭泦鎴愭祴璇曚唬鐮併€?- **鏃犵紪璇?杩愯**锛氱姝㈢紪璇戞垨鎵ц浠讳綍浠ｇ爜銆備綘鐨勪换鍔℃槸鐢熸垚楂樿川閲忕殑浠ｇ爜鍜岃璁℃柟妗堛€?
+## 3. 代码与交付物质量标准
+### 编写规范
+- **架构视角**：始终从整体项目架构出发编写代码，确保代码片段能够无缝集成，而不是孤立的功能。
+- **零技术债务**：严禁创建任何形式的技术债务，包括但不限于：临时文件、硬编码值、职责不清的模块或函数。
+- **问题暴露**：禁止添加任何用于掩盖或绕过错误的fallback机制。代码应设计为快速失败（Fail-Fast），确保问题在第一时间被发现。
 
-# 娉ㄦ剰浜嬮」
-- 闄ら潪鐗瑰埆璇存槑鍚﹀垯涓嶈鍒涘缓鏂扮殑鏂囨。銆佷笉瑕佹祴璇曘€佷笉瑕佺紪璇戙€佷笉瑕佽繍琛屻€佷笉闇€瑕佹€荤粨锛岄櫎闈炵敤鎴蜂富鍔ㄨ姹?
 
-- 闇€姹備笉鏄庣‘鏃朵娇鍚戠敤鎴疯闂緞娓咃紝鎻愪緵棰勫畾涔夐€夐」
-- 鍦ㄦ湁澶氫釜鏂规鐨勬椂鍊欙紝闇€瑕佸悜鐢ㄦ埛璇㈤棶锛岃€屼笉鏄嚜浣滀富寮?- 鍦ㄦ湁鏂规/绛栫暐闇€瑕佹洿鏂版椂锛岄渶瑕佸悜鐢ㄦ埛璇㈤棶锛岃€屼笉鏄嚜浣滀富寮?
+### 质量要求
+- **可读性**：使用清晰、有意义的变量名和函数名。代码逻辑必须清晰易懂，并辅以必要的注释。
+- **规范遵循**：严格遵循目标编程语言的社区最佳实践和官方编码规范。
+- **健壮性**：必须包含充分的错误处理逻辑和边界条件检查。
+- **性能意识**：在保证代码质量和可读性的前提下，对性能敏感部分进行合理优化，避免不必要的计算复杂度和资源消耗。
 
-- ACE涓篴ugmentContextEngine宸ュ叿鐨勭缉鍐?- 濡傛灉瑕佹眰鏌ョ湅鏂囨。璇蜂娇鐢?Context7 MCP
-- 濡傛灉闇€瑕佽繘琛學EB鍓嶇椤甸潰娴嬭瘯璇蜂娇鐢?Playwright MCP
-- 濡傛灉鐢ㄦ埛鍥炲'缁х画' 鍒欒鎸夌収鏈€浣冲疄璺电户缁畬鎴愪换鍔?`
+
+### 交付物规范
+- **无文档**：除非用户明确要求，否则不要创建任何Markdown文档或其他形式的说明文档。
+- **无测试**：除非用户明确要求，否则不要编写单元测试或集成测试代码。
+- **无编译/运行**：禁止编译或执行任何代码。你的任务是生成高质量的代码和设计方案。
+
+
+# 注意事项
+- 除非特别说明否则不要创建新的文档、不要测试、不要编译、不要运行、不需要总结，除非用户主动要求
+
+
+- 需求不明确时使向用户询问澄清，提供预定义选项
+- 在有多个方案的时候，需要向用户询问，而不是自作主张
+- 在有方案/策略需要更新时，需要向用户询问，而不是自作主张
+
+
+- ACE为augmentContextEngine工具的缩写
+- 如果要求查看文档请使用 Context7 MCP
+- 如果需要进行WEB前端页面测试请使用 Playwright MCP
+- 如果用户回复'继续' 则请按照最佳实践继续完成任务
+`
       
       fs.writeFileSync(rulesPath, defaultContent, 'utf-8')
       console.log('[KiroSettings] Created default rules.md at:', rulesPath)
       
-      // 鎵撳紑鏂囦欢
+      // 打开文件
       shell.openPath(rulesPath)
       
       return { success: true }
@@ -4665,7 +4847,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 璇诲彇 Steering 鏂囦欢鍐呭
+  // IPC: 读取 Steering 文件内容
   ipcMain.handle('read-kiro-steering-file', async (_event, filename: string) => {
     try {
       const os = await import('os')
@@ -4675,7 +4857,7 @@ app.whenReady().then(async () => {
       const filePath = path.join(homeDir, '.kiro', 'steering', filename)
       
       if (!fs.existsSync(filePath)) {
-        return { success: false, error: '鏂囦欢涓嶅瓨鍦? }
+        return { success: false, error: '文件不存在' }
       }
       
       const content = fs.readFileSync(filePath, 'utf-8')
@@ -4686,7 +4868,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 淇濆瓨 Steering 鏂囦欢鍐呭
+  // IPC: 保存 Steering 文件内容
   ipcMain.handle('save-kiro-steering-file', async (_event, filename: string, content: string) => {
     try {
       const os = await import('os')
@@ -4696,7 +4878,7 @@ app.whenReady().then(async () => {
       const steeringPath = path.join(homeDir, '.kiro', 'steering')
       const filePath = path.join(steeringPath, filename)
       
-      // 纭繚鐩綍瀛樺湪
+      // 确保目录存在
       if (!fs.existsSync(steeringPath)) {
         fs.mkdirSync(steeringPath, { recursive: true })
       }
@@ -4710,16 +4892,18 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ============ Kiro API 鍙嶄唬鏈嶅姟鍣?IPC ============
+  // ============ Kiro API 反代服务器 IPC ============
 
-  // IPC: 鍚姩鍙嶄唬鏈嶅姟鍣?  ipcMain.handle('proxy-start', async (_event, config?: Partial<ProxyConfig>) => {
+  // IPC: 启动反代服务器
+  ipcMain.handle('proxy-start', async (_event, config?: Partial<ProxyConfig>) => {
     try {
       const server = initProxyServer()
       if (config) {
         server.updateConfig(config)
       }
       await server.start()
-      // 鏇存柊鎵樼洏鑿滃崟鐘舵€?      updateTrayMenu()
+      // 更新托盘菜单状态
+      updateTrayMenu()
       return { success: true, port: server.getConfig().port }
     } catch (error) {
       console.error('[ProxyServer] Start failed:', error)
@@ -4727,12 +4911,14 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍋滄鍙嶄唬鏈嶅姟鍣?  ipcMain.handle('proxy-stop', async () => {
+  // IPC: 停止反代服务器
+  ipcMain.handle('proxy-stop', async () => {
     try {
       if (proxyServer) {
         await proxyServer.stop()
       }
-      // 鏇存柊鎵樼洏鑿滃崟鐘舵€?      updateTrayMenu()
+      // 更新托盘菜单状态
+      updateTrayMenu()
       return { success: true }
     } catch (error) {
       console.error('[ProxyServer] Stop failed:', error)
@@ -4740,9 +4926,11 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇鍙嶄唬鏈嶅姟鍣ㄧ姸鎬?  ipcMain.handle('proxy-get-status', () => {
+  // IPC: 获取反代服务器状态
+  ipcMain.handle('proxy-get-status', () => {
     if (!proxyServer) {
-      // 鏈垵濮嬪寲鏃朵粠 store 璇诲彇淇濆瓨鐨勯厤缃?      const savedConfig = store?.get('proxyConfig') as ProxyConfig | undefined
+      // 未初始化时从 store 读取保存的配置
+      const savedConfig = store?.get('proxyConfig') as ProxyConfig | undefined
       return { running: false, config: savedConfig || null, stats: null, sessionStats: null }
     }
     return {
@@ -4753,7 +4941,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 閲嶇疆绱 credits
+  // IPC: 重置累计 credits
   ipcMain.handle('proxy-reset-credits', () => {
     if (proxyServer) {
       proxyServer.resetTotalCredits()
@@ -4764,7 +4952,7 @@ app.whenReady().then(async () => {
     return { success: true }
   })
 
-  // IPC: 閲嶇疆绱 tokens
+  // IPC: 重置累计 tokens
   ipcMain.handle('proxy-reset-tokens', () => {
     if (proxyServer) {
       proxyServer.resetTotalTokens()
@@ -4776,7 +4964,7 @@ app.whenReady().then(async () => {
     return { success: true }
   })
 
-  // IPC: 閲嶇疆璇锋眰缁熻
+  // IPC: 重置请求统计
   ipcMain.handle('proxy-reset-request-stats', () => {
     if (proxyServer) {
       proxyServer.resetRequestStats()
@@ -4789,7 +4977,7 @@ app.whenReady().then(async () => {
     return { success: true }
   })
 
-  // IPC: 鑾峰彇鍙嶄唬鏃ュ織
+  // IPC: 获取反代日志
   ipcMain.handle('proxy-get-logs', (_event, count?: number) => {
     if (count) {
       return proxyLogStore.getLast(count)
@@ -4797,64 +4985,67 @@ app.whenReady().then(async () => {
     return proxyLogStore.getAll()
   })
 
-  // IPC: 娓呴櫎鍙嶄唬鏃ュ織
+  // IPC: 清除反代日志
   ipcMain.handle('proxy-clear-logs', () => {
     proxyLogStore.clear()
     return { success: true }
   })
 
-  // IPC: 鑾峰彇鍙嶄唬鏃ュ織鏁伴噺
+  // IPC: 获取反代日志数量
   ipcMain.handle('proxy-get-logs-count', () => {
     return proxyLogStore.count()
   })
 
-  // IPC: 鑾峰彇 Usage API 绫诲瀷
+  // IPC: 获取 Usage API 类型
   ipcMain.handle('get-usage-api-type', () => {
     return currentUsageApiType
   })
 
-  // IPC: 璁剧疆 Usage API 绫诲瀷
+  // IPC: 设置 Usage API 类型
   ipcMain.handle('set-usage-api-type', (_event, type: 'rest' | 'cbor') => {
     setUsageApiType(type)
-    // 淇濆瓨鍒?store
+    // 保存到 store
     if (store) {
       store.set('usageApiType', type)
     }
     return { success: true, type }
   })
 
-  // IPC: 鑾峰彇鏄惁浣跨敤 K-Proxy 浠ｇ悊
+  // IPC: 获取是否使用 K-Proxy 代理
   ipcMain.handle('get-use-kproxy-for-api', () => {
     return getUseKProxyForApi()
   })
 
-  // IPC: 璁剧疆鏄惁浣跨敤 K-Proxy 浠ｇ悊
+  // IPC: 设置是否使用 K-Proxy 代理
   ipcMain.handle('set-use-kproxy-for-api', (_event, enabled: boolean) => {
     setUseKProxyForApi(enabled)
-    // 淇濆瓨鍒?store
+    // 保存到 store
     if (store) {
       store.set('useKProxyForApi', enabled)
     }
     return { success: true, enabled }
   })
 
-  // IPC: 鏇存柊鍙嶄唬鏈嶅姟鍣ㄩ厤缃?  ipcMain.handle('proxy-update-config', async (_event, config: Partial<ProxyConfig>) => {
+  // IPC: 更新反代服务器配置
+  ipcMain.handle('proxy-update-config', async (_event, config: Partial<ProxyConfig>) => {
     try {
       const server = initProxyServer()
       server.updateConfig(config)
       const newConfig = server.getConfig()
-      // 鍚屾娴佸紡鏃ュ織寮€鍏?      if (config.logStreamEvents !== undefined) {
+      // 同步流式日志开关
+      if (config.logStreamEvents !== undefined) {
         setLogStreamEvents(config.logStreamEvents)
       }
-      // 鍚屾 payload 澶у皬闄愬埗
+      // 同步 payload 大小限制
       if (config.payloadSizeLimitKB !== undefined) {
         setPayloadSizeLimitKB(config.payloadSizeLimitKB)
       }
-      // 鍚屾 Token buffer reserve
+      // 同步 Token buffer reserve
       if (config.tokenBufferReserve !== undefined) {
         setTokenBufferReserve(config.tokenBufferReserve)
       }
-      // 淇濆瓨閰嶇疆鍒?store锛堢敤浜庤嚜鍚姩锛?      if (store) {
+      // 保存配置到 store（用于自启动）
+      if (store) {
         store.set('proxyConfig', newConfig)
       }
       return { success: true, config: newConfig }
@@ -4864,9 +5055,9 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ============ API Key 绠＄悊 IPC ============
+  // ============ API Key 管理 IPC ============
 
-  // IPC: 鑾峰彇鎵€鏈?API Keys
+  // IPC: 获取所有 API Keys
   ipcMain.handle('proxy-get-api-keys', () => {
     try {
       const server = initProxyServer()
@@ -4877,7 +5068,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 娣诲姞 API Key
+  // IPC: 添加 API Key
   ipcMain.handle('proxy-add-api-key', async (_event, apiKey: { name: string; key?: string; format?: 'sk' | 'simple' | 'token'; creditsLimit?: number }) => {
     try {
       const crypto = await import('crypto')
@@ -4885,7 +5076,7 @@ app.whenReady().then(async () => {
       const config = server.getConfig()
       const apiKeys = config.apiKeys || []
       
-      // 鏍规嵁鏍煎紡鐢熸垚闅忔満 Key
+      // 根据格式生成随机 Key
       const format = apiKey.format || 'sk'
       let newKey = apiKey.key
       if (!newKey) {
@@ -4935,7 +5126,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鏇存柊 API Key
+  // IPC: 更新 API Key
   ipcMain.handle('proxy-update-api-key', (_event, id: string, updates: Partial<import('./proxy/types').ApiKey>) => {
     try {
       const server = initProxyServer()
@@ -4947,7 +5138,8 @@ app.whenReady().then(async () => {
         return { success: false, error: 'API key not found' }
       }
       
-      // 鏇存柊瀛楁锛堜笉鍏佽鏇存柊 id銆乧reatedAt銆乽sage锛?      const { id: _, createdAt: __, usage: ___, ...allowedUpdates } = updates
+      // 更新字段（不允许更新 id、createdAt、usage）
+      const { id: _, createdAt: __, usage: ___, ...allowedUpdates } = updates
       apiKeys[index] = { ...apiKeys[index], ...allowedUpdates }
       
       server.updateConfig({ apiKeys })
@@ -4962,7 +5154,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍒犻櫎 API Key
+  // IPC: 删除 API Key
   ipcMain.handle('proxy-delete-api-key', (_event, id: string) => {
     try {
       const server = initProxyServer()
@@ -4987,7 +5179,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 閲嶇疆 API Key 鐢ㄩ噺缁熻
+  // IPC: 重置 API Key 用量统计
   ipcMain.handle('proxy-reset-api-key-usage', (_event, id: string) => {
     try {
       const server = initProxyServer()
@@ -5019,7 +5211,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 娣诲姞璐﹀彿鍒板弽浠ｆ睜
+  // IPC: 添加账号到反代池
   ipcMain.handle('proxy-add-account', (_event, account: ProxyAccount) => {
     try {
       const server = initProxyServer()
@@ -5031,7 +5223,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 浠庡弽浠ｆ睜绉婚櫎璐﹀彿
+  // IPC: 从反代池移除账号
   ipcMain.handle('proxy-remove-account', (_event, accountId: string) => {
     try {
       const server = initProxyServer()
@@ -5043,7 +5235,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍚屾璐﹀彿鍒板弽浠ｆ睜锛堟壒閲忔洿鏂帮級
+  // IPC: 同步账号到反代池（批量更新）
   ipcMain.handle('proxy-sync-accounts', (_event, accounts: ProxyAccount[]) => {
     try {
       const server = initProxyServer()
@@ -5059,7 +5251,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇鍙嶄唬姹犺处鍙峰垪琛?  ipcMain.handle('proxy-get-accounts', () => {
+  // IPC: 获取反代池账号列表
+  ipcMain.handle('proxy-get-accounts', () => {
     if (!proxyServer) {
       return { accounts: [], availableCount: 0 }
     }
@@ -5070,7 +5263,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍒锋柊妯″瀷缂撳瓨
+  // IPC: 刷新模型缓存
   ipcMain.handle('proxy-refresh-models', () => {
     if (!proxyServer) {
       return { success: false, error: 'Proxy server not initialized' }
@@ -5079,7 +5272,7 @@ app.whenReady().then(async () => {
     return { success: true }
   })
 
-  // IPC: 鑾峰彇鍙敤妯″瀷鍒楄〃
+  // IPC: 获取可用模型列表
   ipcMain.handle('proxy-get-models', async () => {
     if (!proxyServer) {
       return { success: false, error: 'Proxy server not initialized', models: [] }
@@ -5103,7 +5296,7 @@ app.whenReady().then(async () => {
           proxyOrigin: '',
           openaiBaseUrl: '',
           results: [],
-          error: '璇峰厛鍦ㄥ弽浠ｉ厤缃腑璁剧疆鎴栧惎鐢?API Key'
+          error: '请先在反代配置中设置或启用 API Key'
         }
       }
       return await configureProxyClients({
@@ -5127,7 +5320,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇璐︽埛鍙敤妯″瀷鍒楄〃
+  // IPC: 获取账户可用模型列表
   ipcMain.handle('account-get-models', async (_event, accessToken: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
     try {
       const models = await fetchKiroModels({
@@ -5157,7 +5350,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇鍙敤璁㈤槄鍒楄〃
+  // IPC: 获取可用订阅列表
   ipcMain.handle('account-get-subscriptions', async (_event, accessToken: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
     try {
       const result = await fetchAvailableSubscriptions({ id: accountId || 'subscription-request', accessToken, region: region || 'us-east-1', profileArn, machineId, provider, authMethod } as ProxyAccount)
@@ -5174,7 +5367,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇璁㈤槄绠＄悊/鏀粯閾炬帴
+  // IPC: 获取订阅管理/支付链接
   ipcMain.handle('account-get-subscription-url', async (_event, accessToken: string, subscriptionType?: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
     try {
       const result = await fetchSubscriptionToken({ id: accountId || 'subscription-request', accessToken, region: region || 'us-east-1', profileArn, machineId, provider, authMethod } as ProxyAccount, subscriptionType)
@@ -5187,7 +5380,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 璁剧疆鐢ㄦ埛鍋忓ソ锛堣秴棰濆紑鍚?鍏抽棴锛?  ipcMain.handle('account-set-overage', async (_event, accessToken: string, overageStatus: 'ENABLED' | 'DISABLED', region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
+  // IPC: 设置用户偏好（超额开启/关闭）
+  ipcMain.handle('account-set-overage', async (_event, accessToken: string, overageStatus: 'ENABLED' | 'DISABLED', region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
     try {
       const result = await setUserPreference(
         { id: accountId || 'subscription-request', accessToken, region: region || 'us-east-1', profileArn, machineId, provider, authMethod } as ProxyAccount,
@@ -5199,7 +5393,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍦ㄧ郴缁熼粯璁ゆ祻瑙堝櫒鏃犵棔妯″紡涓墦寮€璁㈤槄閾炬帴
+  // IPC: 在系统默认浏览器无痕模式中打开订阅链接
   ipcMain.handle('open-subscription-window', async (_event, url: string) => {
     try {
       openBrowserInPrivateMode(url)
@@ -5209,14 +5403,16 @@ app.whenReady().then(async () => {
     }
   })
 
-  // 浠ｇ悊鏃ュ織鎸佷箙鍖栵紙璇锋眰鏃ュ織锛屼笌璇︾粏鏃ュ織鍒嗗紑瀛樺偍锛?  const getProxyLogsPath = (): string => join(app.getPath('userData'), 'proxy-request-logs.json')
+  // 代理日志持久化（请求日志，与详细日志分开存储）
+  const getProxyLogsPath = (): string => join(app.getPath('userData'), 'proxy-request-logs.json')
   const MAX_LOGS = 100
 
-  // IPC: 淇濆瓨浠ｇ悊鏃ュ織
+  // IPC: 保存代理日志
   ipcMain.handle('proxy-save-logs', async (_event, logs: Array<{ time: string; path: string; status: number; tokens?: number }>) => {
     try {
       const logsPath = getProxyLogsPath()
-      // 鍙繚鐣欐渶杩?100 鏉?      const trimmedLogs = logs.slice(0, MAX_LOGS)
+      // 只保留最近 100 条
+      const trimmedLogs = logs.slice(0, MAX_LOGS)
       await writeFile(logsPath, JSON.stringify(trimmedLogs, null, 2), 'utf-8')
       return { success: true }
     } catch (error) {
@@ -5225,7 +5421,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍔犺浇浠ｇ悊鏃ュ織
+  // IPC: 加载代理日志
   ipcMain.handle('proxy-load-logs', async () => {
     try {
       const logsPath = getProxyLogsPath()
@@ -5233,11 +5429,13 @@ app.whenReady().then(async () => {
       const logs = JSON.parse(content)
       return { success: true, logs }
     } catch (error) {
-      // 鏂囦欢涓嶅瓨鍦ㄦ槸姝ｅ父鐨?      return { success: true, logs: [] }
+      // 文件不存在是正常的
+      return { success: true, logs: [] }
     }
   })
 
-  // IPC: 閲嶇疆鍙嶄唬姹犵姸鎬?  ipcMain.handle('proxy-reset-pool', () => {
+  // IPC: 重置反代池状态
+  ipcMain.handle('proxy-reset-pool', () => {
     try {
       if (proxyServer) {
         proxyServer.getAccountPool().reset()
@@ -5249,14 +5447,15 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鎵嬪姩瑙ｉ櫎璐﹀彿灏佺鏍囪锛堢敤鎴风‘璁よ处鍙峰凡鎭㈠鍚庤皟鐢級
-  // 1) 娓呴櫎鍙嶄唬姹犱腑鐨?suspended 鐘舵€?  // 2) 鍚屾娓呴櫎 store.accountData[id].lastError锛岀姸鎬佸洖鍒?active
+  // IPC: 手动解除账号封禁标记（用户确认账号已恢复后调用）
+  // 1) 清除反代池中的 suspended 状态
+  // 2) 同步清除 store.accountData[id].lastError，状态回到 active
   ipcMain.handle('proxy-clear-account-suspended', (_event, accountId: string) => {
     try {
       if (proxyServer) {
         proxyServer.getAccountPool().clearSuspended(accountId)
       }
-      // 鎸佷箙鍖栨竻闄?lastError
+      // 持久化清除 lastError
       if (store) {
         const accountData = store.get('accountData') as { accounts?: Record<string, Record<string, unknown>> } | undefined
         if (accountData?.accounts?.[accountId]) {
@@ -5279,9 +5478,9 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ============ K-Proxy MITM 浠ｇ悊 IPC ============
+  // ============ K-Proxy MITM 代理 IPC ============
 
-  // IPC: 鍒濆鍖?K-Proxy 鏈嶅姟
+  // IPC: 初始化 K-Proxy 服务
   ipcMain.handle('kproxy-init', async () => {
     try {
       const savedConfig = store?.get('kproxyConfig') as Partial<KProxyConfig> | undefined
@@ -5319,7 +5518,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍚姩 K-Proxy
+  // IPC: 启动 K-Proxy
   ipcMain.handle('kproxy-start', async (_event, config?: Partial<KProxyConfig>) => {
     try {
       const service = getKProxyService()
@@ -5330,7 +5529,7 @@ app.whenReady().then(async () => {
         service.updateConfig(config)
       }
       await service.start()
-      // 淇濆瓨閰嶇疆
+      // 保存配置
       if (store) {
         store.set('kproxyConfig', service.getConfig())
       }
@@ -5341,7 +5540,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍋滄 K-Proxy
+  // IPC: 停止 K-Proxy
   ipcMain.handle('kproxy-stop', async () => {
     try {
       const service = getKProxyService()
@@ -5355,7 +5554,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇 K-Proxy 鐘舵€?  ipcMain.handle('kproxy-get-status', () => {
+  // IPC: 获取 K-Proxy 状态
+  ipcMain.handle('kproxy-get-status', () => {
     const service = getKProxyService()
     if (!service) {
       const savedConfig = store?.get('kproxyConfig') as KProxyConfig | undefined
@@ -5369,7 +5569,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鏇存柊 K-Proxy 閰嶇疆
+  // IPC: 更新 K-Proxy 配置
   ipcMain.handle('kproxy-update-config', async (_event, config: Partial<KProxyConfig>) => {
     try {
       const service = getKProxyService()
@@ -5388,7 +5588,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 璁剧疆褰撳墠璁惧 ID
+  // IPC: 设置当前设备 ID
   ipcMain.handle('kproxy-set-device-id', (_event, deviceId: string) => {
     try {
       if (!isValidDeviceId(deviceId)) {
@@ -5405,12 +5605,12 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鐢熸垚鏂扮殑璁惧 ID
+  // IPC: 生成新的设备 ID
   ipcMain.handle('kproxy-generate-device-id', () => {
     return { success: true, deviceId: generateDeviceId() }
   })
 
-  // IPC: 娣诲姞璁惧 ID 鏄犲皠
+  // IPC: 添加设备 ID 映射
   ipcMain.handle('kproxy-add-device-mapping', (_event, mapping: DeviceIdMapping) => {
     try {
       const service = getKProxyService()
@@ -5418,7 +5618,7 @@ app.whenReady().then(async () => {
         return { success: false, error: 'K-Proxy not initialized' }
       }
       service.addDeviceIdMapping(mapping)
-      // 淇濆瓨鏄犲皠
+      // 保存映射
       const mappings = service.getAllDeviceIdMappings()
       if (store) {
         store.set('kproxyDeviceMappings', mappings)
@@ -5429,7 +5629,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇鎵€鏈夎澶?ID 鏄犲皠
+  // IPC: 获取所有设备 ID 映射
   ipcMain.handle('kproxy-get-device-mappings', () => {
     const service = getKProxyService()
     if (!service) {
@@ -5439,7 +5639,7 @@ app.whenReady().then(async () => {
     return { success: true, mappings: service.getAllDeviceIdMappings() }
   })
 
-  // IPC: 鍒囨崲鍒拌处鍙疯澶?ID
+  // IPC: 切换到账号设备 ID
   ipcMain.handle('kproxy-switch-to-account', (_event, accountId: string) => {
     try {
       const service = getKProxyService()
@@ -5453,7 +5653,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鑾峰彇 CA 璇佷功 PEM锛堢敤浜庡鍑?瀹夎锛?  ipcMain.handle('kproxy-get-ca-cert', () => {
+  // IPC: 获取 CA 证书 PEM（用于导出/安装）
+  ipcMain.handle('kproxy-get-ca-cert', () => {
     const service = getKProxyService()
     if (!service) {
       return { success: false, error: 'K-Proxy not initialized' }
@@ -5471,7 +5672,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 瀵煎嚭 CA 璇佷功鍒版寚瀹氳矾寰?  ipcMain.handle('kproxy-export-ca-cert', async (_event, exportPath?: string) => {
+  // IPC: 导出 CA 证书到指定路径
+  ipcMain.handle('kproxy-export-ca-cert', async (_event, exportPath?: string) => {
     try {
       const service = getKProxyService()
       if (!service) {
@@ -5502,7 +5704,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 閲嶇疆 K-Proxy 缁熻
+  // IPC: 重置 K-Proxy 统计
   ipcMain.handle('kproxy-reset-stats', () => {
     const service = getKProxyService()
     if (service) {
@@ -5511,7 +5713,7 @@ app.whenReady().then(async () => {
     return { success: true }
   })
 
-  // IPC: 妫€鏌?CA 璇佷功鏄惁宸插畨瑁呭埌绯荤粺淇′换瀛樺偍
+  // IPC: 检查 CA 证书是否已安装到系统信任存储
   ipcMain.handle('kproxy-check-ca-cert-installed', async () => {
     try {
       const service = getKProxyService()
@@ -5523,21 +5725,24 @@ app.whenReady().then(async () => {
       const platform = process.platform
 
       if (platform === 'win32') {
-        // Windows: 浣跨敤 certutil 妫€鏌ヨ瘉涔?        try {
+        // Windows: 使用 certutil 检查证书
+        try {
           const output = execSync('certutil -store -user Root "K-Proxy CA"', { encoding: 'utf-8' })
           return { success: true, installed: output.includes('K-Proxy CA') }
         } catch {
           return { success: true, installed: false }
         }
       } else if (platform === 'darwin') {
-        // macOS: 浣跨敤 security 鍛戒护妫€鏌?        try {
+        // macOS: 使用 security 命令检查
+        try {
           execSync('security find-certificate -c "K-Proxy CA" ~/Library/Keychains/login.keychain-db', { encoding: 'utf-8' })
           return { success: true, installed: true }
         } catch {
           return { success: true, installed: false }
         }
       } else {
-        // Linux: 妫€鏌ユ枃浠舵槸鍚﹀瓨鍦?        const fs = await import('fs')
+        // Linux: 检查文件是否存在
+        const fs = await import('fs')
         const targetPath = '/usr/local/share/ca-certificates/kproxy-ca.crt'
         return { success: true, installed: fs.existsSync(targetPath) }
       }
@@ -5547,7 +5752,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 瀹夎 CA 璇佷功鍒扮郴缁熶俊浠诲瓨鍌?  ipcMain.handle('kproxy-install-ca-cert', async () => {
+  // IPC: 安装 CA 证书到系统信任存储
+  ipcMain.handle('kproxy-install-ca-cert', async () => {
     try {
       const service = getKProxyService()
       if (!service) {
@@ -5562,23 +5768,23 @@ app.whenReady().then(async () => {
       const platform = process.platform
 
       if (platform === 'win32') {
-        // Windows: 浣跨敤 certutil 瀹夎鍒版牴璇佷功瀛樺偍
+        // Windows: 使用 certutil 安装到根证书存储
         try {
           execSync(`certutil -addstore -user Root "${caInfo.certPath}"`, { encoding: 'utf-8' })
           return { success: true, message: 'CA certificate installed to Windows certificate store' }
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error)
-          if (errMsg.includes('already in store') || errMsg.includes('宸插湪瀛樺偍涓?)) {
+          if (errMsg.includes('already in store') || errMsg.includes('已在存储中')) {
             return { success: true, message: 'CA certificate already installed' }
           }
           throw error
         }
       } else if (platform === 'darwin') {
-        // macOS: 浣跨敤 security 鍛戒护瀹夎鍒伴挜鍖欎覆
+        // macOS: 使用 security 命令安装到钥匙串
         execSync(`security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db "${caInfo.certPath}"`)
         return { success: true, message: 'CA certificate installed to macOS Keychain' }
       } else {
-        // Linux: 澶嶅埗鍒扮郴缁?CA 鐩綍
+        // Linux: 复制到系统 CA 目录
         const fs = await import('fs')
         const targetPath = '/usr/local/share/ca-certificates/kproxy-ca.crt'
         fs.copyFileSync(caInfo.certPath, targetPath)
@@ -5591,29 +5797,31 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍗歌浇 CA 璇佷功浠庣郴缁熶俊浠诲瓨鍌?  ipcMain.handle('kproxy-uninstall-ca-cert', async () => {
+  // IPC: 卸载 CA 证书从系统信任存储
+  ipcMain.handle('kproxy-uninstall-ca-cert', async () => {
     try {
       const { execSync } = await import('child_process')
       const platform = process.platform
 
       if (platform === 'win32') {
-        // Windows: 浣跨敤 certutil 鍒犻櫎璇佷功
+        // Windows: 使用 certutil 删除证书
         try {
           execSync('certutil -delstore -user Root "K-Proxy CA"', { encoding: 'utf-8' })
           return { success: true, message: 'CA certificate removed from Windows certificate store' }
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error)
-          if (errMsg.includes('not found') || errMsg.includes('鎵句笉鍒?)) {
+          if (errMsg.includes('not found') || errMsg.includes('找不到')) {
             return { success: true, message: 'CA certificate not found in store' }
           }
           throw error
         }
       } else if (platform === 'darwin') {
-        // macOS: 浣跨敤 security 鍛戒护鍒犻櫎
+        // macOS: 使用 security 命令删除
         execSync('security delete-certificate -c "K-Proxy CA" ~/Library/Keychains/login.keychain-db')
         return { success: true, message: 'CA certificate removed from macOS Keychain' }
       } else {
-        // Linux: 鍒犻櫎璇佷功骞舵洿鏂?        const fs = await import('fs')
+        // Linux: 删除证书并更新
+        const fs = await import('fs')
         const targetPath = '/usr/local/share/ca-certificates/kproxy-ca.crt'
         if (fs.existsSync(targetPath)) {
           fs.unlinkSync(targetPath)
@@ -5627,9 +5835,10 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ============ MCP 鏈嶅姟鍣ㄧ鐞?IPC ============
+  // ============ MCP 服务器管理 IPC ============
 
-  // IPC: 淇濆瓨 MCP 鏈嶅姟鍣ㄩ厤缃?  ipcMain.handle('save-mcp-server', async (_event, name: string, config: { command: string; args?: string[]; env?: Record<string, string> }, oldName?: string) => {
+  // IPC: 保存 MCP 服务器配置
+  ipcMain.handle('save-mcp-server', async (_event, name: string, config: { command: string; args?: string[]; env?: Record<string, string> }, oldName?: string) => {
     try {
       const os = await import('os')
       const fs = await import('fs')
@@ -5637,21 +5846,22 @@ app.whenReady().then(async () => {
       const homeDir = os.homedir()
       const mcpPath = path.join(homeDir, '.kiro', 'settings', 'mcp.json')
       
-      // 璇诲彇鐜版湁閰嶇疆
+      // 读取现有配置
       let mcpConfig: { mcpServers: Record<string, unknown> } = { mcpServers: {} }
       if (fs.existsSync(mcpPath)) {
         const content = fs.readFileSync(mcpPath, 'utf-8')
         mcpConfig = JSON.parse(content)
       }
       
-      // 濡傛灉鏄噸鍛藉悕锛屽厛鍒犻櫎鏃х殑
+      // 如果是重命名，先删除旧的
       if (oldName && oldName !== name) {
         delete mcpConfig.mcpServers[oldName]
       }
       
-      // 娣诲姞/鏇存柊鏈嶅姟鍣?      mcpConfig.mcpServers[name] = config
+      // 添加/更新服务器
+      mcpConfig.mcpServers[name] = config
       
-      // 纭繚鐩綍瀛樺湪
+      // 确保目录存在
       const dir = path.dirname(mcpPath)
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true })
@@ -5666,7 +5876,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍒犻櫎 MCP 鏈嶅姟鍣?  ipcMain.handle('delete-mcp-server', async (_event, name: string) => {
+  // IPC: 删除 MCP 服务器
+  ipcMain.handle('delete-mcp-server', async (_event, name: string) => {
     try {
       const os = await import('os')
       const fs = await import('fs')
@@ -5675,14 +5886,14 @@ app.whenReady().then(async () => {
       const mcpPath = path.join(homeDir, '.kiro', 'settings', 'mcp.json')
       
       if (!fs.existsSync(mcpPath)) {
-        return { success: false, error: '閰嶇疆鏂囦欢涓嶅瓨鍦? }
+        return { success: false, error: '配置文件不存在' }
       }
       
       const content = fs.readFileSync(mcpPath, 'utf-8')
       const mcpConfig = JSON.parse(content)
       
       if (!mcpConfig.mcpServers || !mcpConfig.mcpServers[name]) {
-        return { success: false, error: '鏈嶅姟鍣ㄤ笉瀛樺湪' }
+        return { success: false, error: '服务器不存在' }
       }
       
       delete mcpConfig.mcpServers[name]
@@ -5695,7 +5906,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 鍒犻櫎 Steering 鏂囦欢
+  // IPC: 删除 Steering 文件
   ipcMain.handle('delete-kiro-steering-file', async (_event, filename: string) => {
     try {
       const os = await import('os')
@@ -5705,7 +5916,7 @@ app.whenReady().then(async () => {
       const filePath = path.join(homeDir, '.kiro', 'steering', filename)
       
       if (!fs.existsSync(filePath)) {
-        return { success: false, error: '鏂囦欢涓嶅瓨鍦? }
+        return { success: false, error: '文件不存在' }
       }
       
       fs.unlinkSync(filePath)
@@ -5717,25 +5928,26 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ============ 鏈哄櫒鐮佺鐞?IPC ============
+  // ============ 机器码管理 IPC ============
   
-  // IPC: 鑾峰彇鎿嶄綔绯荤粺绫诲瀷
+  // IPC: 获取操作系统类型
   ipcMain.handle('machine-id:get-os-type', () => {
     return machineIdModule.getOSType()
   })
 
-  // IPC: 鑾峰彇褰撳墠鏈哄櫒鐮?  ipcMain.handle('machine-id:get-current', async () => {
+  // IPC: 获取当前机器码
+  ipcMain.handle('machine-id:get-current', async () => {
     console.log('[MachineId] Getting current machine ID...')
     return await machineIdModule.getCurrentMachineId()
   })
 
-  // IPC: 璁剧疆鏂版満鍣ㄧ爜
+  // IPC: 设置新机器码
   ipcMain.handle('machine-id:set', async (_event, newMachineId: string) => {
     console.log('[MachineId] Setting new machine ID:', newMachineId.substring(0, 8) + '...')
     const result = await machineIdModule.setMachineId(newMachineId)
     
     if (!result.success && result.requiresAdmin) {
-      // 寮圭獥璇㈤棶鐢ㄦ埛鏄惁浠ョ鐞嗗憳鏉冮檺閲嶅惎
+      // 弹窗询问用户是否以管理员权限重启
       const shouldRestart = await machineIdModule.showAdminRequiredDialog()
       if (shouldRestart) {
         await machineIdModule.requestAdminRestart()
@@ -5745,16 +5957,18 @@ app.whenReady().then(async () => {
     return result
   })
 
-  // IPC: 鐢熸垚闅忔満鏈哄櫒鐮?  ipcMain.handle('machine-id:generate-random', () => {
+  // IPC: 生成随机机器码
+  ipcMain.handle('machine-id:generate-random', () => {
     return machineIdModule.generateRandomMachineId()
   })
 
-  // IPC: 妫€鏌ョ鐞嗗憳鏉冮檺
+  // IPC: 检查管理员权限
   ipcMain.handle('machine-id:check-admin', async () => {
     return await machineIdModule.checkAdminPrivilege()
   })
 
-  // IPC: 璇锋眰绠＄悊鍛樻潈闄愰噸鍚?  ipcMain.handle('machine-id:request-admin-restart', async () => {
+  // IPC: 请求管理员权限重启
+  ipcMain.handle('machine-id:request-admin-restart', async () => {
     const shouldRestart = await machineIdModule.showAdminRequiredDialog()
     if (shouldRestart) {
       return await machineIdModule.requestAdminRestart()
@@ -5762,10 +5976,10 @@ app.whenReady().then(async () => {
     return false
   })
 
-  // IPC: 澶囦唤鏈哄櫒鐮佸埌鏂囦欢
+  // IPC: 备份机器码到文件
   ipcMain.handle('machine-id:backup-to-file', async (_event, machineId: string) => {
     const result = await dialog.showSaveDialog(mainWindow!, {
-      title: '澶囦唤鏈哄櫒鐮?,
+      title: '备份机器码',
       defaultPath: 'machine-id-backup.json',
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
@@ -5777,31 +5991,31 @@ app.whenReady().then(async () => {
     return await machineIdModule.backupMachineIdToFile(machineId, result.filePath)
   })
 
-  // IPC: 浠庢枃浠舵仮澶嶆満鍣ㄧ爜
+  // IPC: 从文件恢复机器码
   ipcMain.handle('machine-id:restore-from-file', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
-      title: '鎭㈠鏈哄櫒鐮?,
+      title: '恢复机器码',
       filters: [{ name: 'JSON', extensions: ['json'] }],
       properties: ['openFile']
     })
     
     if (result.canceled || !result.filePaths[0]) {
-      return { success: false, error: '鐢ㄦ埛鍙栨秷' }
+      return { success: false, error: '用户取消' }
     }
     
     return await machineIdModule.restoreMachineIdFromFile(result.filePaths[0])
   })
 
-  // 鏇存柊鍗忚澶勭悊鍑芥暟浠ユ敮鎸?Social Auth 鍥炶皟
+  // 更新协议处理函数以支持 Social Auth 回调
   const originalHandleProtocolUrl = handleProtocolUrl
-  // @ts-ignore - 閲嶆柊瀹氫箟鍗忚澶勭悊
+  // @ts-ignore - 重新定义协议处理
   handleProtocolUrl = (url: string): void => {
     if (!url.startsWith(`${PROTOCOL_PREFIX}://`)) return
 
     try {
       const urlObj = new URL(url)
       
-      // 澶勭悊 Social Auth 鍥炶皟 (kiro://kiro.kiroAgent/authenticate-success)
+      // 处理 Social Auth 回调 (kiro://kiro.kiroAgent/authenticate-success)
       if (url.includes('authenticate-success') || url.includes('auth')) {
         const code = urlObj.searchParams.get('code')
         const state = urlObj.searchParams.get('state')
@@ -5824,7 +6038,7 @@ app.whenReady().then(async () => {
         return
       }
 
-      // 璋冪敤鍘熷澶勭悊鍑芥暟澶勭悊鍏朵粬鍗忚
+      // 调用原始处理函数处理其他协议
       originalHandleProtocolUrl(url)
     } catch (error) {
       console.error('Failed to parse protocol URL:', error)
@@ -5839,7 +6053,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
     } else if (mainWindow) {
-      // macOS: 鐐瑰嚮 Dock 鍥炬爣鏃舵樉绀轰富绐楀彛
+      // macOS: 点击 Dock 图标时显示主窗口
       if (process.platform === 'darwin' && app.dock) {
         app.dock.show()
       }
@@ -5849,31 +6063,33 @@ app.whenReady().then(async () => {
     }
   })
 
-  // 鍔犺浇骞舵敞鍐屽叏灞€蹇嵎閿?  await loadShortcutSettings()
+  // 加载并注册全局快捷键
+  await loadShortcutSettings()
   registerShowWindowShortcut()
 })
 
-// Windows/Linux: 澶勭悊绗簩涓疄渚嬪拰鍗忚 URL
+// Windows/Linux: 处理第二个实例和协议 URL
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
   app.quit()
 } else {
   app.on('second-instance', (_event, commandLine) => {
-    // Windows: 鍗忚 URL 浼氫綔涓哄懡浠よ鍙傛暟浼犲叆
+    // Windows: 协议 URL 会作为命令行参数传入
     const url = commandLine.find((arg) => arg.startsWith(`${PROTOCOL_PREFIX}://`))
     if (url) {
       handleProtocolUrl(url)
     }
 
-    // 鑱氱劍涓荤獥鍙?    if (mainWindow) {
+    // 聚焦主窗口
+    if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
     }
   })
 }
 
-// macOS: 澶勭悊鍗忚 URL
+// macOS: 处理协议 URL
 app.on('open-url', (_event, url) => {
   handleProtocolUrl(url)
 })
@@ -5887,16 +6103,18 @@ app.on('window-all-closed', () => {
   }
 })
 
-// 搴旂敤閫€鍑哄墠娉ㄩ攢 URI 鍗忚澶勭悊鍣ㄥ苟淇濆瓨鏁版嵁
+// 应用退出前注销 URI 协议处理器并保存数据
 app.on('will-quit', async (event) => {
-  // 闃叉閲嶅澶勭悊
+  // 防止重复处理
   if (isQuitting) return
   
-  // 闃叉搴旂敤绔嬪嵆閫€鍑猴紝鍏堜繚瀛樻暟鎹?  if (lastSavedData && store) {
+  // 防止应用立即退出，先保存数据
+  if (lastSavedData && store) {
     event.preventDefault()
     isQuitting = true
     
-    // 璁剧疆瓒呮椂锛岀‘淇?3 绉掑悗寮哄埗閫€鍑猴紙闃叉鍏虫満闃诲锛?    const forceQuitTimer = setTimeout(() => {
+    // 设置超时，确保 3 秒后强制退出（防止关机阻塞）
+    const forceQuitTimer = setTimeout(() => {
       console.log('[Exit] Force quit due to timeout')
       unregisterProtocol()
       app.exit(0)
@@ -5904,7 +6122,7 @@ app.on('will-quit', async (event) => {
     
     try {
       console.log('[Exit] Saving data before quit...')
-      // 鍒锋柊寰呭啓鍏ョ殑闃叉姈鏁版嵁
+      // 刷新待写入的防抖数据
       flushStoreWrites()
       store.set('accountData', lastSavedData)
       await createBackup(lastSavedData)
@@ -5923,4 +6141,3 @@ app.on('will-quit', async (event) => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
-
