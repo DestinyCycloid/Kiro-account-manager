@@ -16,7 +16,6 @@ import type {
   ProxyAccount
 } from './types'
 import { proxyLogger } from './logger'
-import { getKProxyService } from '../kproxy'
 import { getSystemProxy } from './systemProxy'
 import {
   countTokens,
@@ -27,13 +26,7 @@ import {
 // 重新导出以保持向后兼容（proxyServer.ts 等模块仍 from './kiroApi' 导入）
 export { setModelContextWindow, getModelContextWindow }
 
-// 是否使用 K-Proxy 代理发送 API 请求（从主进程导入）
-let useKProxyForApi = false
 let logStreamEvents = false
-
-export function setUseKProxyForApiInProxy(enabled: boolean): void {
-  useKProxyForApi = enabled
-}
 
 export function setLogStreamEvents(enabled: boolean): void {
   logStreamEvents = enabled
@@ -87,14 +80,6 @@ function estimatePayloadTokens(payload: KiroPayload): number {
 
 // 获取网络代理 agent（优先 K-Proxy，其次用户设置代理，其次系统代理）
 function getNetworkAgent(): ProxyAgent | undefined {
-  if (useKProxyForApi) {
-    const kproxyService = getKProxyService()
-    if (kproxyService?.isRunning()) {
-      const config = kproxyService.getConfig()
-      const proxyUrl = `http://${config.host}:${config.port}`
-      return new ProxyAgent({ uri: proxyUrl, requestTls: { rejectUnauthorized: false } })
-    }
-  }
   const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy
   if (envProxy) {
     return new ProxyAgent({ uri: envProxy, requestTls: { rejectUnauthorized: false } })
@@ -1089,11 +1074,6 @@ function generateStableMachineId(accountId: string): string {
 // 获取账号绑定的 Machine ID（保证永远不为空）
 function getAccountMachineId(accountId: string, accountMachineId?: string): string {
   if (accountMachineId) return accountMachineId
-  const kproxyService = getKProxyService()
-  if (kproxyService) {
-    const deviceId = kproxyService.getDeviceIdForAccount(accountId)
-    if (deviceId) return deviceId
-  }
   return generateStableMachineId(accountId)
 }
 

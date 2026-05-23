@@ -21,8 +21,6 @@ import {
   KeyRound,
   X,
   ExternalLink,
-  CreditCard,
-  Sparkles,
   LogOut,
   RotateCcw
 } from 'lucide-react'
@@ -340,112 +338,6 @@ export const AccountCard = memo(function AccountCard({
   // 封禁详情弹窗状态
   const [showBanDialog, setShowBanDialog] = useState(false)
   
-  // 订阅管理弹窗状态
-  const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false)
-  const [subscriptionLoading, setSubscriptionLoading] = useState(false)
-  const [subscriptionPlans, setSubscriptionPlans] = useState<Array<{
-    name: string
-    qSubscriptionType: string
-    description: { title: string; billingInterval: string; featureHeader: string; features: string[] }
-    pricing: { amount: number; currency: string }
-  }>>([])
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
-  const [paymentLoading, setPaymentLoading] = useState(false)
-
-  // 是否为首次用户（需要选择订阅类型）
-  const [isFirstTimeUser, setIsFirstTimeUser] = useState(false)
-  // 订阅错误信息
-  const [subscriptionError, setSubscriptionError] = useState<string | null>(null)
-  // 订阅成功提示
-  const [subscriptionSuccess, setSubscriptionSuccess] = useState<string | null>(null)
-
-  // 点击订阅标签打开订阅管理
-  const handleSubscriptionClick = async (e: React.MouseEvent): Promise<void> => {
-    e.stopPropagation()
-    if (subscriptionLoading || !account.credentials?.accessToken) return
-    
-    setSubscriptionLoading(true)
-    try {
-      // 统一先获取可用订阅列表
-      const result = await window.api.accountGetSubscriptions(account.credentials.accessToken, account.credentials?.region, account.profileArn, account.machineId, account.credentials?.provider || account.idp, account.credentials?.authMethod, account.id)
-      if (result.success && result.plans.length > 0) {
-        setSubscriptionPlans(result.plans)
-        // 检查是否是首次用户（当前订阅类型为 FREE 或无订阅）
-        const currentType = account.subscription.type?.toUpperCase() || ''
-        const isFirstTime = currentType === '' || currentType.includes('FREE')
-        setIsFirstTimeUser(isFirstTime)
-        setShowSubscriptionDialog(true)
-      } else {
-        console.error('[AccountCard] Failed to get subscriptions:', result.error)
-      }
-    } catch (error) {
-      console.error('[AccountCard] Subscription click error:', error)
-    } finally {
-      setSubscriptionLoading(false)
-    }
-  }
-
-  // 选择订阅计划并获取支付链接
-  const handleSelectPlan = async (planName: string): Promise<void> => {
-    if (paymentLoading || !account.credentials?.accessToken) return
-    
-    setSelectedPlan(planName)
-    setPaymentLoading(true)
-    setSubscriptionError(null)
-    try {
-      const result = await window.api.accountGetSubscriptionUrl(account.credentials.accessToken, planName, account.credentials?.region, account.profileArn, account.machineId, account.credentials?.provider || account.idp, account.credentials?.authMethod, account.id)
-      if (result.success && result.url) {
-        // 自动复制链接到剪贴板
-        await navigator.clipboard.writeText(result.url)
-        // 显示复制成功提示
-        setSubscriptionSuccess(isEn ? 'Link copied to clipboard!' : '链接已复制到剪贴板！')
-        // 短暂显示后关闭弹窗并打开链接
-        const urlToOpen = result.url
-        setTimeout(async () => {
-          setShowSubscriptionDialog(false)
-          setSubscriptionSuccess(null)
-          await window.api.openSubscriptionWindow(urlToOpen)
-        }, 800)
-      } else {
-        const errorMsg = result.error || (isEn ? 'Failed to get payment URL' : '获取支付链接失败')
-        setSubscriptionError(errorMsg)
-        console.error('[AccountCard] Failed to get payment URL:', result.error)
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : (isEn ? 'Unknown error' : '未知错误')
-      setSubscriptionError(errorMsg)
-      console.error('[AccountCard] Payment URL error:', error)
-    } finally {
-      setPaymentLoading(false)
-      setSelectedPlan(null)
-    }
-  }
-
-  // 获取订阅管理链接（已有订阅用户）
-  const handleManageSubscription = async (): Promise<void> => {
-    if (paymentLoading || !account.credentials?.accessToken) return
-    
-    setPaymentLoading(true)
-    setSubscriptionError(null)
-    try {
-      const result = await window.api.accountGetSubscriptionUrl(account.credentials.accessToken, undefined, account.credentials?.region, account.profileArn, account.machineId, account.credentials?.provider || account.idp, account.credentials?.authMethod, account.id)
-      if (result.success && result.url) {
-        setShowSubscriptionDialog(false)
-        await window.api.openSubscriptionWindow(result.url)
-      } else {
-        // 显示错误信息
-        const errorMsg = result.error || (isEn ? 'Failed to get management URL' : '获取管理链接失败')
-        setSubscriptionError(errorMsg)
-        console.error('[AccountCard] Failed to get management URL:', result.error)
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : (isEn ? 'Unknown error' : '未知错误')
-      setSubscriptionError(errorMsg)
-      console.error('[AccountCard] Management URL error:', error)
-    } finally {
-      setPaymentLoading(false)
-    }
-  }
 
   // 封禁状态样式（红色）- 优先级最高
   const unauthorizedStyle: React.CSSProperties = isUnauthorized ? {
@@ -577,13 +469,10 @@ export const AccountCard = memo(function AccountCard({
             <Badge 
               className={cn(
                 'text-white text-[10px] h-5 px-2 border-0 cursor-pointer transition-all hover:opacity-80 hover:scale-105',
-                getSubscriptionColor(account.subscription.type, account.subscription.title),
-                subscriptionLoading && 'opacity-60 cursor-wait'
+                getSubscriptionColor(account.subscription.type, account.subscription.title)
               )}
-              onClick={handleSubscriptionClick}
-              title={isEn ? 'Click to manage subscription' : '点击管理订阅'}
             >
-                {subscriptionLoading ? (isEn ? 'Loading...' : '加载中...') : (account.subscription.title || account.subscription.type)}
+                {account.subscription.title || account.subscription.type}
             </Badge>
             <Badge variant="outline" className="text-[10px] h-5 px-2 text-muted-foreground font-normal border-muted-foreground/30 bg-muted/30">
                 {account.idp}
@@ -875,125 +764,6 @@ export const AccountCard = memo(function AccountCard({
         document.body
       )}
 
-      {/* 订阅管理弹窗 */}
-      {showSubscriptionDialog && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-slate-900/[0.12] dark:bg-black/50 backdrop-blur-xl" onClick={() => { setShowSubscriptionDialog(false); setIsFirstTimeUser(false); setSubscriptionError(null); setSubscriptionSuccess(null) }} />
-          <div className="relative bg-background rounded-xl shadow-2xl w-full max-w-2xl m-4 animate-in fade-in zoom-in-95 duration-200 border overflow-hidden">
-            <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-primary/10 to-purple-500/10">
-              <div className="flex items-center gap-2 text-primary">
-                <CreditCard className="h-5 w-5" />
-                <span className="font-bold">{isEn ? (isFirstTimeUser ? 'Choose Your Plan' : 'Subscription Plans') : (isFirstTimeUser ? '选择订阅计划' : '订阅计划')}</span>
-              </div>
-              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-red-500 hover:text-white transition-colors" onClick={() => { setShowSubscriptionDialog(false); setIsFirstTimeUser(false); setSubscriptionError(null); setSubscriptionSuccess(null) }}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="p-4 space-y-4">
-              {isFirstTimeUser ? (
-                <div className="text-xs text-muted-foreground mb-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 p-2 rounded-lg">
-                  {isEn ? 'Please select a subscription plan to continue.' : '请选择一个订阅计划以继续使用。'}
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground mb-2">
-                  {isEn ? 'Current subscription: ' : '当前订阅: '}
-                  <span className="font-medium text-foreground">{account.subscription.title || account.subscription.type}</span>
-                </div>
-              )}
-              
-              {subscriptionError && (
-                <div className="text-xs bg-red-500/10 text-red-600 dark:text-red-400 p-2 rounded-lg flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{subscriptionError}</span>
-                </div>
-              )}
-              
-              {subscriptionSuccess && (
-                <div className="text-xs bg-green-500/10 text-green-600 dark:text-green-400 p-2 rounded-lg flex items-center gap-2">
-                  <Check className="h-4 w-4 shrink-0" />
-                  <span>{subscriptionSuccess}</span>
-                </div>
-              )}
-              
-              <div className="grid grid-cols-2 gap-3">
-                {subscriptionPlans.map((plan) => {
-                  const isCurrent = plan.name === account.subscription.type || plan.description.title === account.subscription.title
-                  const isLoading = paymentLoading && selectedPlan === plan.qSubscriptionType
-                  return (
-                    <div
-                      key={plan.name}
-                      className={cn(
-                        'relative p-4 rounded-lg border-2 transition-all cursor-pointer hover:shadow-md',
-                        isCurrent ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
-                        isLoading && 'opacity-70 cursor-wait'
-                      )}
-                      onClick={() => !isCurrent && handleSelectPlan(plan.qSubscriptionType)}
-                    >
-                      {isCurrent && (
-                        <div className="absolute -top-2 -right-2 bg-primary text-primary-foreground text-[10px] px-2 py-0.5 rounded-full font-medium">
-                          {isEn ? 'Current' : '当前'}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 mb-2">
-                        <Sparkles className={cn('h-4 w-4', plan.pricing.amount === 0 ? 'text-green-500' : 'text-amber-500')} />
-                        <span className="font-bold text-sm">{plan.description.title}</span>
-                      </div>
-                      <div className="text-2xl font-bold mb-2">
-                        {plan.pricing.amount === 0 ? (isEn ? 'Free' : '免费') : `$${plan.pricing.amount}`}
-                        {plan.pricing.amount > 0 && <span className="text-xs font-normal text-muted-foreground">/{plan.description.billingInterval}</span>}
-                      </div>
-                      <ul className="space-y-1.5">
-                        {plan.description.features.slice(0, 4).map((feature, idx) => (
-                          <li key={idx} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                            <Check className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
-                            <span>{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      {!isCurrent && (
-                        <Button 
-                          size="sm" 
-                          className="w-full mt-3" 
-                          variant={plan.pricing.amount === 0 ? 'outline' : 'default'}
-                          disabled={isLoading}
-                        >
-                          {isLoading ? (
-                            <><Loader2 className="h-3 w-3 mr-1 animate-spin" />{isEn ? 'Loading...' : '加载中...'}</>
-                          ) : (
-                            isEn ? 'Select' : '选择'
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={handleManageSubscription}
-                  disabled={paymentLoading}
-                  className="text-xs"
-                >
-                  {paymentLoading && !selectedPlan ? (
-                    <><Loader2 className="h-3 w-3 mr-1 animate-spin" />{isEn ? 'Loading...' : '加载中...'}</>
-                  ) : (
-                    <><ExternalLink className="h-3 w-3 mr-1" />{isEn ? 'Manage Billing' : '管理账单'}</>
-                  )}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setShowSubscriptionDialog(false); setIsFirstTimeUser(false); setSubscriptionError(null); setSubscriptionSuccess(null) }}>
-                  {isEn ? 'Close' : '关闭'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </Card>
   )
 })
-
-

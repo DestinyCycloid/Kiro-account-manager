@@ -1,6 +1,6 @@
 import { useAccountsStore } from '@/store/accounts'
 import { Card, CardContent, CardHeader, CardTitle, Button } from '../ui'
-import { Eye, EyeOff, RefreshCw, Clock, Trash2, Download, Upload, Globe, Repeat, Palette, Moon, Sun, Fingerprint, Info, ChevronDown, ChevronUp, Settings, Database, Layers, UserX, Monitor } from 'lucide-react'
+import { Eye, EyeOff, RefreshCw, Clock, Trash2, Download, Upload, Globe, Repeat, Palette, Moon, Sun, ChevronDown, ChevronUp, Settings, Database, Layers, UserX, Monitor } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { ExportDialog } from '../accounts/ExportDialog'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -298,64 +298,10 @@ export function SettingsPage() {
     }
   }
 
-  // K-Proxy 代理设置状态
-  const [useKProxyForApi, setUseKProxyForApi] = useState(false)
-  const [kproxyLoading, setKproxyLoading] = useState(true)
-  const [autoUpdateOnStartup, setAutoUpdateOnStartup] = useState(false)
-  const [autoUpdateLoading, setAutoUpdateLoading] = useState(true)
   const [protocolClientPath, setProtocolClientPath] = useState('')
   const [protocolDefaultPath, setProtocolDefaultPath] = useState('')
   const [protocolLoading, setProtocolLoading] = useState(true)
 
-  // 加载 K-Proxy 代理设置
-  useEffect(() => {
-    const loadKProxySettings = async () => {
-      try {
-        const enabled = await window.api.getUseKProxyForApi()
-        setUseKProxyForApi(enabled)
-      } catch (error) {
-        console.error('Failed to load K-Proxy settings:', error)
-      } finally {
-        setKproxyLoading(false)
-      }
-    }
-    loadKProxySettings()
-  }, [])
-
-  // 保存 K-Proxy 代理设置
-  const handleKProxyChange = async (enabled: boolean) => {
-    setUseKProxyForApi(enabled)
-    try {
-      await window.api.setUseKProxyForApi(enabled)
-    } catch (error) {
-      console.error('Failed to save K-Proxy settings:', error)
-    }
-  }
-
-  useEffect(() => {
-    const loadAutoUpdateSettings = async () => {
-      try {
-        const enabled = await window.api.getAutoUpdateOnStartup()
-        setAutoUpdateOnStartup(enabled)
-      } catch (error) {
-        console.error('Failed to load auto update settings:', error)
-      } finally {
-        setAutoUpdateLoading(false)
-      }
-    }
-    loadAutoUpdateSettings()
-  }, [])
-
-  const handleAutoUpdateOnStartupChange = async (enabled: boolean) => {
-    setAutoUpdateOnStartup(enabled)
-    try {
-      const result = await window.api.setAutoUpdateOnStartup(enabled)
-      if (!result.success) setAutoUpdateOnStartup(!enabled)
-    } catch (error) {
-      console.error('Failed to save auto update settings:', error)
-      setAutoUpdateOnStartup(!enabled)
-    }
-  }
 
   useEffect(() => {
     const loadProtocolSettings = async () => {
@@ -793,25 +739,6 @@ export function SettingsPage() {
             <p>• <strong>REST</strong>: {isEn ? 'Official Kiro IDE format, recommended' : '官方 Kiro IDE 使用的格式，推荐使用'}</p>
             <p>• <strong>CBOR</strong>: {isEn ? 'Web portal format, may have different fields' : '网页端格式，字段可能有差异'}</p>
           </div>
-          <div className="flex items-center justify-between pt-2 border-t">
-            <div>
-              <p className="font-medium">{isEn ? 'Use K-Proxy for API' : 'API 请求走 K-Proxy'}</p>
-              <p className="text-sm text-muted-foreground">{isEn ? 'Route API requests through K-Proxy MITM proxy' : 'API 请求通过 K-Proxy MITM 代理发送'}</p>
-            </div>
-            <Button
-              variant={useKProxyForApi ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleKProxyChange(!useKProxyForApi)}
-              disabled={kproxyLoading}
-            >
-              {useKProxyForApi ? (isEn ? 'On' : '已开启') : (isEn ? 'Off' : '已关闭')}
-            </Button>
-          </div>
-          {useKProxyForApi && (
-            <div className="text-xs text-amber-500 bg-amber-500/10 rounded-lg p-3">
-              {isEn ? '⚠️ K-Proxy must be running for this to work' : '⚠️ 需要先启动 K-Proxy MITM 代理才能生效'}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -964,35 +891,6 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="hover-lift">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <RefreshCw className="h-4 w-4 text-primary" />
-            </div>
-            {isEn ? 'Update' : '更新'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {autoUpdateLoading ? (
-            <div className="text-sm text-muted-foreground">{isEn ? 'Loading...' : '加载中...'}</div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">{isEn ? 'Auto check updates on startup' : '启动时自动检查更新'}</p>
-                <p className="text-sm text-muted-foreground">{isEn ? 'Only checks for updates, does not auto download' : '仅检查更新，不会自动下载'}</p>
-              </div>
-              <Button
-                variant={autoUpdateOnStartup ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleAutoUpdateOnStartupChange(!autoUpdateOnStartup)}
-              >
-                {autoUpdateOnStartup ? (isEn ? 'On' : '开启') : (isEn ? 'Off' : '关闭')}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card className="hover-lift">
         <CardHeader className="pb-2">
@@ -1144,26 +1042,6 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* 机器码管理提示 */}
-      <Card className="hover-lift bg-primary/5">
-        <CardContent className="py-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Fingerprint className="h-5 w-5 text-primary" />
-            </div>
-            <div className="flex-1">
-              <p className="font-medium text-sm">{isEn ? 'Machine ID' : '机器码管理'}</p>
-              <p className="text-xs text-muted-foreground">
-                {isEn ? 'Device identifier, auto-switch, account binding' : '修改设备标识符、切号自动换码、账户机器码绑定等功能'}
-              </p>
-            </div>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Info className="h-3 w-3" />
-              <span>{isEn ? 'Set in sidebar "Machine ID"' : '请在侧边栏「机器码」中设置'}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* 数据管理 */}
       <Card className="hover-lift">

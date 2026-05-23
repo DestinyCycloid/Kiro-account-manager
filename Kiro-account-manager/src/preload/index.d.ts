@@ -454,23 +454,6 @@ interface KiroApi {
     error?: string
   }>
 
-  // 手动检查更新 (GitHub API, 用于 AboutPage)
-  checkForUpdatesManual: () => Promise<{
-    hasUpdate: boolean
-    currentVersion?: string
-    latestVersion?: string
-    releaseNotes?: string
-    releaseName?: string
-    releaseUrl?: string
-    publishedAt?: string
-    assets?: Array<{
-      name: string
-      downloadUrl: string
-      size: number
-    }>
-    error?: string
-  }>
-
   // 下载更新
   downloadUpdate: () => Promise<{ success: boolean; error?: string }>
 
@@ -597,17 +580,6 @@ interface KiroApi {
   // 获取账户可用模型列表
   accountGetModels: (accessToken: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => Promise<{ success: boolean; error?: string; models: Array<{ id: string; name: string; description: string; inputTypes?: string[]; maxInputTokens?: number | null; maxOutputTokens?: number | null; rateMultiplier?: number; rateUnit?: string }> }>
 
-  // 获取可用订阅列表
-  accountGetSubscriptions: (accessToken: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => Promise<{ success: boolean; error?: string; plans: Array<{ name: string; qSubscriptionType: string; description: { title: string; billingInterval: string; featureHeader: string; features: string[] }; pricing: { amount: number; currency: string } }>; disclaimer?: string[] }>
-
-  // 获取订阅管理/支付链接
-  accountGetSubscriptionUrl: (accessToken: string, subscriptionType?: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => Promise<{ success: boolean; error?: string; url?: string; status?: string }>
-
-  // 设置用户超额偏好
-  accountSetOverage: (accessToken: string, overageStatus: 'ENABLED' | 'DISABLED', region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => Promise<{ success: boolean; error?: string }>
-
-  // 在新窗口打开订阅链接
-  openSubscriptionWindow: (url: string) => Promise<{ success: boolean; error?: string }>
 
   // 保存代理日志
   proxySaveLogs: (logs: Array<{ time: string; path: string; status: number; tokens?: number }>) => Promise<{ success: boolean; error?: string }>
@@ -638,52 +610,6 @@ interface KiroApi {
   // 设置 Usage API 类型
   setUsageApiType: (type: 'rest' | 'cbor') => Promise<{ success: boolean; type: string }>
 
-  // 获取是否使用 K-Proxy 代理
-  getUseKProxyForApi: () => Promise<boolean>
-
-  // 设置是否使用 K-Proxy 代理
-  setUseKProxyForApi: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>
-
-  // ============ K-Proxy MITM 代理 ============
-
-  // 初始化 K-Proxy
-  kproxyInit: () => Promise<{ success: boolean; caInfo?: { certPath: string; fingerprint: string; validFrom: string; validTo: string }; error?: string }>
-
-  // 启动 K-Proxy
-  kproxyStart: (config?: { port?: number; host?: string; mitmDomains?: string[]; deviceId?: string }) => Promise<{ success: boolean; port?: number; error?: string }>
-
-  // 停止 K-Proxy
-  kproxyStop: () => Promise<{ success: boolean; error?: string }>
-
-  // 获取 K-Proxy 状态
-  kproxyGetStatus: () => Promise<{ running: boolean; config: unknown; stats: unknown; caInfo: unknown }>
-
-  // 更新 K-Proxy 配置
-  kproxyUpdateConfig: (config: { port?: number; host?: string; mitmDomains?: string[]; deviceId?: string; autoStart?: boolean; logRequests?: boolean }) => Promise<{ success: boolean; config?: unknown; error?: string }>
-
-  // 设置当前设备 ID
-  kproxySetDeviceId: (deviceId: string) => Promise<{ success: boolean; error?: string }>
-
-  // 生成新的设备 ID
-  kproxyGenerateDeviceId: () => Promise<{ success: boolean; deviceId?: string }>
-
-  // 添加设备 ID 映射
-  kproxyAddDeviceMapping: (mapping: { accountId: string; deviceId: string; description?: string; createdAt: number }) => Promise<{ success: boolean; error?: string }>
-
-  // 获取所有设备 ID 映射
-  kproxyGetDeviceMappings: () => Promise<{ success: boolean; mappings: Array<{ accountId: string; deviceId: string; description?: string; createdAt: number; lastUsed?: number }> }>
-
-  // 切换到账号设备 ID
-  kproxySwitchToAccount: (accountId: string) => Promise<{ success: boolean; error?: string }>
-
-  // 获取 CA 证书
-  kproxyGetCaCert: () => Promise<{ success: boolean; certPem?: string; certPath?: string; fingerprint?: string; error?: string }>
-
-  // 导出 CA 证书
-  kproxyExportCaCert: (exportPath?: string) => Promise<{ success: boolean; path?: string; error?: string }>
-
-  // 检查 CA 证书是否已安装
-  kproxyCheckCaCertInstalled: () => Promise<{ success: boolean; installed: boolean; error?: string }>
 
   // ============ API Key 管理 ============
   
@@ -702,29 +628,6 @@ interface KiroApi {
   // 重置 API Key 用量统计
   proxyResetApiKeyUsage: (id: string) => Promise<{ success: boolean; error?: string }>
 
-  // 安装 CA 证书到系统信任存储
-  kproxyInstallCaCert: () => Promise<{ success: boolean; message?: string; error?: string }>
-
-  // 卸载 CA 证书从系统信任存储
-  kproxyUninstallCaCert: () => Promise<{ success: boolean; message?: string; error?: string }>
-
-  // 重置 K-Proxy 统计
-  kproxyResetStats: () => Promise<{ success: boolean }>
-
-  // 监听 K-Proxy 请求事件
-  onKproxyRequest: (callback: (info: { timestamp: number; method: string; host: string; path: string; isMitm: boolean; deviceIdReplaced: boolean }) => void) => () => void
-
-  // 监听 K-Proxy 响应事件
-  onKproxyResponse: (callback: (info: { timestamp: number; host: string; statusCode: number; duration: number }) => void) => () => void
-
-  // 监听 K-Proxy 错误事件
-  onKproxyError: (callback: (error: string) => void) => () => void
-
-  // 监听 K-Proxy 状态变化事件
-  onKproxyStatusChange: (callback: (status: { running: boolean; port: number }) => void) => () => void
-
-  // 监听 K-Proxy MITM 拦截事件
-  onKproxyMitm: (callback: (info: { host: string; modified: boolean }) => void) => () => void
 
   // ============ 自定义 titlebar API ============
   window: {
@@ -803,52 +706,6 @@ interface KiroApi {
   // 发送关闭确认对话框响应
   sendCloseConfirmResponse: (action: 'minimize' | 'quit' | 'cancel', rememberChoice: boolean) => void
 
-  // ============ 注册功能 API ============
-
-  registrationStartAuto: (config: {
-    proxy?: string
-    moEmailBaseURL?: string
-    moEmailAPIKey?: string
-    useOutlook?: boolean
-    outlookData?: string
-    useTempMailPlus?: boolean
-    tempMailPlusEmail?: string
-    tempMailPlusEpin?: string
-    tempMailPlusDomain?: string
-    password?: string
-    fullName?: string
-    taskId?: string
-  }) => Promise<{ success: boolean; result?: unknown; error?: string }>
-
-  registrationManualPhase1: (config: {
-    proxy?: string
-    password?: string
-    fullName?: string
-  }) => Promise<{ success: boolean; error?: string }>
-
-  registrationManualPhase2: (email: string, fullName?: string) => Promise<{ success: boolean; error?: string }>
-
-  registrationManualPhase3: (otp: string) => Promise<{ success: boolean; result?: unknown; error?: string }>
-
-  registrationCancel: () => Promise<{ success: boolean }>
-
-  registrationStatus: () => Promise<{ inProgress: boolean }>
-
-  onRegistrationLog: (callback: (msg: string) => void) => () => void
-
-  onRegistrationComplete: (callback: (result: {
-    status: 'success' | 'failed'
-    email: string
-    password?: string
-    error?: string
-    clientId?: string
-    clientSecret?: string
-    refreshToken?: string
-    accessToken?: string
-    region?: string
-    provider?: string
-    verify?: Record<string, unknown>
-  }) => void) => () => void
 }
 
 declare global {

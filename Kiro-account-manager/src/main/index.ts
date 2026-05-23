@@ -2,24 +2,14 @@ import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut } from 'elec
 import { autoUpdater } from 'electron-updater'
 import * as machineIdModule from './machineId'
 import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { writeFile, readFile } from 'fs/promises'
 import { encode, decode } from 'cbor-x'
 import { ProxyAgent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import icon from '../../resources/icon.png?asset'
 import { ProxyServer, configureProxyClients, type ProxyAccount, type ProxyConfig, type ProxyClientTarget, type ProxyClientModel } from './proxy'
-import { 
-  initKProxyService, 
-  getKProxyService, 
-  generateDeviceId, 
-  isValidDeviceId,
-  type KProxyConfig,
-  type DeviceIdMapping
-} from './kproxy'
-import { fetchKiroModels, fetchSubscriptionToken, fetchAvailableSubscriptions, setUserPreference, setUseKProxyForApiInProxy, setLogStreamEvents, setPayloadSizeLimitKB, setTokenBufferReserve, setEnableTokenBufferReserve } from './proxy/kiroApi'
+import { fetchKiroModels, setLogStreamEvents, setPayloadSizeLimitKB, setTokenBufferReserve, setEnableTokenBufferReserve } from './proxy/kiroApi'
 import { getSystemProxy } from './proxy/systemProxy'
 import { proxyLogStore, interceptConsole } from './proxy/logger'
-import { registerIPCHandlers as registerRegistrationHandlers } from './registration/ipc-handlers'
 import {
   createTray,
   destroyTray,
@@ -31,6 +21,24 @@ import {
   type TraySettings,
   defaultTraySettings
 } from './tray'
+
+const isDev = !app.isPackaged
+
+function watchWindowShortcuts(window: BrowserWindow): void {
+  const { webContents } = window
+  webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+    if (!isDev) {
+      if (input.code === 'KeyR' && (input.control || input.meta)) event.preventDefault()
+      if (input.code === 'KeyI' && ((input.alt && input.meta) || (input.control && input.shift))) event.preventDefault()
+      return
+    }
+    if (input.code === 'F12') {
+      if (webContents.isDevToolsOpened()) webContents.closeDevTools()
+      else webContents.openDevTools({ mode: 'undocked' })
+    }
+  })
+}
 
 // ============ 自动更新配置 ============
 autoUpdater.autoDownload = false
@@ -131,29 +139,9 @@ export function getUsageApiType(): UsageApiType {
 }
 
 // 是否使用 K-Proxy 代理发送 API 请求
-let useKProxyForApi: boolean = false
-
-export function setUseKProxyForApi(enabled: boolean): void {
-  useKProxyForApi = enabled
-  // 同步设置到 kiroApi.ts
-  setUseKProxyForApiInProxy(enabled)
-  console.log(`[API] Use K-Proxy for API requests: ${enabled}`)
-}
-
-export function getUseKProxyForApi(): boolean {
-  return useKProxyForApi
-}
 
 // 获取网络代理 agent（优先 K-Proxy，其次用户设置代理，其次系统代理）
 function getNetworkAgent(): ProxyAgent | undefined {
-  if (useKProxyForApi) {
-    const kproxyService = getKProxyService()
-    if (kproxyService?.isRunning()) {
-      const config = kproxyService.getConfig()
-      const proxyUrl = `http://${config.host}:${config.port}`
-      return new ProxyAgent({ uri: proxyUrl, requestTls: { rejectUnauthorized: false } })
-    }
-  }
   const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy
   if (envProxy) {
     return new ProxyAgent({ uri: envProxy, requestTls: { rejectUnauthorized: false } })
@@ -281,11 +269,6 @@ function initProxyServer(): ProxyServer {
   const savedUsageApiType = store?.get('usageApiType') as 'rest' | 'cbor' | undefined
   if (savedUsageApiType) {
     setUsageApiType(savedUsageApiType)
-  }
-  // 从 store 加载保存的 K-Proxy 代理设置
-  const savedUseKProxyForApi = store?.get('useKProxyForApi') as boolean | undefined
-  if (savedUseKProxyForApi !== undefined) {
-    setUseKProxyForApi(savedUseKProxyForApi)
   }
   // 从 store 加载保存的累计 credits 和 tokens
   const savedTotalCredits = (store?.get('proxyTotalCredits') as number) || 0
@@ -708,9 +691,7 @@ function getKiroAmzUserAgent(machineId?: string): string {
 }
 
 function getCurrentMachineId(): string | undefined {
-  const kproxyService = getKProxyService()
-  if (!kproxyService) return undefined
-  return kproxyService.getDeviceId()
+  return undefined
 }
 
 // ============ AWS SSO 设备授权流程 ============
@@ -1636,37 +1617,6 @@ function createWindow(): void {
       } catch (error) {
         console.error('[ProxyServer] Auto-start failed:', error)
       }
-
-      // K-Proxy MITM 自启动
-      try {
-        const savedKProxyConfig = store?.get('kproxyConfig') as KProxyConfig | undefined
-        if (savedKProxyConfig?.autoStart) {
-          console.log('[KProxy] Auto-starting K-Proxy MITM...')
-          const service = initKProxyService(savedKProxyConfig, {
-            onRequest: (info) => {
-              mainWindow?.webContents.send('kproxy-request', info)
-            },
-            onResponse: (info) => {
-              mainWindow?.webContents.send('kproxy-response', info)
-            },
-            onError: (error) => {
-              console.error('[KProxy] Error:', error)
-              mainWindow?.webContents.send('kproxy-error', error.message)
-            },
-            onStatusChange: (running, port) => {
-              mainWindow?.webContents.send('kproxy-status-change', { running, port })
-            },
-            onMitmIntercept: (host, modified) => {
-              mainWindow?.webContents.send('kproxy-mitm', { host, modified })
-            }
-          })
-          await service.initialize()
-          await service.start()
-          console.log('[KProxy] Auto-started successfully')
-        }
-      } catch (error) {
-        console.error('[KProxy] Auto-start failed:', error)
-      }
     }, 1000)
   })
 
@@ -1721,7 +1671,7 @@ function createWindow(): void {
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+  if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
@@ -1800,7 +1750,7 @@ app.whenReady().then(async () => {
   initTray()
 
   // 初始化自动更新（仅生产环境）
-  if (!is.dev) {
+  if (!isDev) {
     setupAutoUpdater()
     // 启动后延迟检查更新
     setTimeout(() => {
@@ -1809,13 +1759,13 @@ app.whenReady().then(async () => {
   }
 
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.kiro.account-manager')
+  app.setAppUserModelId('com.kiro.account-manager')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+    watchWindowShortcuts(window)
   })
 
   // IPC: 打开外部链接
@@ -1830,7 +1780,6 @@ app.whenReady().then(async () => {
   })
 
   // ============ 注册功能 IPC ============
-  registerRegistrationHandlers(() => mainWindow)
 
   // ============ 托盘相关 IPC ============
 
@@ -1997,7 +1946,7 @@ app.whenReady().then(async () => {
 
   // IPC: 检查更新
   ipcMain.handle('check-for-updates', async () => {
-    if (is.dev) {
+    if (isDev) {
       return { hasUpdate: false, message: '开发环境不支持更新检查' }
     }
     try {
@@ -2015,7 +1964,7 @@ app.whenReady().then(async () => {
 
   // IPC: 下载更新
   ipcMain.handle('download-update', async () => {
-    if (is.dev) {
+    if (isDev) {
       return { success: false, message: '开发环境不支持更新' }
     }
     try {
@@ -2030,86 +1979,6 @@ app.whenReady().then(async () => {
   // IPC: 安装更新并重启
   ipcMain.handle('install-update', () => {
     autoUpdater.quitAndInstall(false, true)
-  })
-
-  // IPC: 手动检查更新（使用 GitHub API，用于 AboutPage）
-  const GITHUB_REPO = 'chaogei/Kiro-account-manager'
-  const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
-  
-  ipcMain.handle('check-for-updates-manual', async () => {
-    try {
-      console.log('[Update] Manual check via GitHub API...')
-      const currentVersion = app.getVersion()
-      
-      const response = await fetchWithAppProxy(GITHUB_API_URL, {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Kiro-Account-Manager'
-        }
-      })
-      
-      if (!response.ok) {
-        if (response.status === 403) {
-          throw new Error('GitHub API 请求次数超限，请稍后再试')
-        } else if (response.status === 404) {
-          throw new Error('未找到发布版本')
-        }
-        throw new Error(`GitHub API 错误: ${response.status}`)
-      }
-      
-      const release = await response.json() as {
-        tag_name: string
-        name: string
-        body: string
-        html_url: string
-        published_at: string
-        assets: Array<{
-          name: string
-          browser_download_url: string
-          size: number
-        }>
-      }
-      
-      const latestVersion = release.tag_name.replace(/^v/, '')
-      
-      // 比较版本号
-      const compareVersions = (v1: string, v2: string): number => {
-        const parts1 = v1.split('.').map(Number)
-        const parts2 = v2.split('.').map(Number)
-        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-          const p1 = parts1[i] || 0
-          const p2 = parts2[i] || 0
-          if (p1 > p2) return 1
-          if (p1 < p2) return -1
-        }
-        return 0
-      }
-      
-      const hasUpdate = compareVersions(latestVersion, currentVersion) > 0
-      
-      console.log(`[Update] Current: ${currentVersion}, Latest: ${latestVersion}, HasUpdate: ${hasUpdate}`)
-      
-      return {
-        hasUpdate,
-        currentVersion,
-        latestVersion,
-        releaseNotes: release.body || '',
-        releaseName: release.name || `v${latestVersion}`,
-        releaseUrl: release.html_url,
-        publishedAt: release.published_at,
-        assets: release.assets.map(a => ({
-          name: a.name,
-          downloadUrl: a.browser_download_url,
-          size: a.size
-        }))
-      }
-    } catch (error) {
-      console.error('[Update] Manual check failed:', error)
-      return {
-        hasUpdate: false,
-        error: error instanceof Error ? error.message : '检查更新失败'
-      }
-    }
   })
 
   // IPC: 加载账号数据
@@ -5039,21 +4908,6 @@ app.whenReady().then(async () => {
     return { success: true, type }
   })
 
-  // IPC: 获取是否使用 K-Proxy 代理
-  ipcMain.handle('get-use-kproxy-for-api', () => {
-    return getUseKProxyForApi()
-  })
-
-  // IPC: 设置是否使用 K-Proxy 代理
-  ipcMain.handle('set-use-kproxy-for-api', (_event, enabled: boolean) => {
-    setUseKProxyForApi(enabled)
-    // 保存到 store
-    if (store) {
-      store.set('useKProxyForApi', enabled)
-    }
-    return { success: true, enabled }
-  })
-
   // IPC: 更新反代服务器配置
   ipcMain.handle('proxy-update-config', async (_event, config: Partial<ProxyConfig>) => {
     try {
@@ -5381,59 +5235,6 @@ app.whenReady().then(async () => {
     }
   })
 
-  // IPC: 获取可用订阅列表
-  ipcMain.handle('account-get-subscriptions', async (_event, accessToken: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
-    try {
-      const result = await fetchAvailableSubscriptions({ id: accountId || 'subscription-request', accessToken, region: region || 'us-east-1', profileArn, machineId, provider, authMethod } as ProxyAccount)
-      if (result.subscriptionPlans) {
-        return { 
-          success: true, 
-          plans: result.subscriptionPlans,
-          disclaimer: result.disclaimer 
-        }
-      }
-      return { success: false, error: 'No subscription plans returned', plans: [] }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to get subscriptions', plans: [] }
-    }
-  })
-
-  // IPC: 获取订阅管理/支付链接
-  ipcMain.handle('account-get-subscription-url', async (_event, accessToken: string, subscriptionType?: string, region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
-    try {
-      const result = await fetchSubscriptionToken({ id: accountId || 'subscription-request', accessToken, region: region || 'us-east-1', profileArn, machineId, provider, authMethod } as ProxyAccount, subscriptionType)
-      if (result.encodedVerificationUrl) {
-        return { success: true, url: result.encodedVerificationUrl, status: result.status }
-      }
-      return { success: false, error: result.message || 'No subscription URL returned' }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to get subscription URL' }
-    }
-  })
-
-  // IPC: 设置用户偏好（超额开启/关闭）
-  ipcMain.handle('account-set-overage', async (_event, accessToken: string, overageStatus: 'ENABLED' | 'DISABLED', region?: string, profileArn?: string, machineId?: string, provider?: string, authMethod?: string, accountId?: string) => {
-    try {
-      const result = await setUserPreference(
-        { id: accountId || 'subscription-request', accessToken, region: region || 'us-east-1', profileArn, machineId, provider, authMethod } as ProxyAccount,
-        overageStatus
-      )
-      return result
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to set overage' }
-    }
-  })
-
-  // IPC: 在系统默认浏览器无痕模式中打开订阅链接
-  ipcMain.handle('open-subscription-window', async (_event, url: string) => {
-    try {
-      openBrowserInPrivateMode(url)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to open URL' }
-    }
-  })
-
   // 代理日志持久化（请求日志，与详细日志分开存储）
   const getProxyLogsPath = (): string => join(app.getPath('userData'), 'proxy-request-logs.json')
   const MAX_LOGS = 100
@@ -5512,359 +5313,7 @@ app.whenReady().then(async () => {
   // ============ K-Proxy MITM 代理 IPC ============
 
   // IPC: 初始化 K-Proxy 服务
-  ipcMain.handle('kproxy-init', async () => {
-    try {
-      const savedConfig = store?.get('kproxyConfig') as Partial<KProxyConfig> | undefined
-      const service = initKProxyService(savedConfig || {}, {
-        onRequest: (info) => {
-          mainWindow?.webContents.send('kproxy-request', info)
-        },
-        onResponse: (info) => {
-          mainWindow?.webContents.send('kproxy-response', info)
-        },
-        onError: (error) => {
-          console.error('[KProxy] Error:', error)
-          mainWindow?.webContents.send('kproxy-error', error.message)
-        },
-        onStatusChange: (running, port) => {
-          mainWindow?.webContents.send('kproxy-status-change', { running, port })
-        },
-        onMitmIntercept: (host, modified) => {
-          mainWindow?.webContents.send('kproxy-mitm', { host, modified })
-        }
-      })
-      const caInfo = await service.initialize()
-      return { 
-        success: true, 
-        caInfo: {
-          certPath: caInfo.certPath,
-          fingerprint: caInfo.fingerprint,
-          validFrom: caInfo.validFrom.toISOString(),
-          validTo: caInfo.validTo.toISOString()
-        }
-      }
-    } catch (error) {
-      console.error('[KProxy] Init failed:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to init K-Proxy' }
-    }
-  })
-
-  // IPC: 启动 K-Proxy
-  ipcMain.handle('kproxy-start', async (_event, config?: Partial<KProxyConfig>) => {
-    try {
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, error: 'K-Proxy not initialized' }
-      }
-      if (config) {
-        service.updateConfig(config)
-      }
-      await service.start()
-      // 保存配置
-      if (store) {
-        store.set('kproxyConfig', service.getConfig())
-      }
-      return { success: true, port: service.getConfig().port }
-    } catch (error) {
-      console.error('[KProxy] Start failed:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to start K-Proxy' }
-    }
-  })
-
-  // IPC: 停止 K-Proxy
-  ipcMain.handle('kproxy-stop', async () => {
-    try {
-      const service = getKProxyService()
-      if (service) {
-        await service.stop()
-      }
-      return { success: true }
-    } catch (error) {
-      console.error('[KProxy] Stop failed:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to stop K-Proxy' }
-    }
-  })
-
-  // IPC: 获取 K-Proxy 状态
-  ipcMain.handle('kproxy-get-status', () => {
-    const service = getKProxyService()
-    if (!service) {
-      const savedConfig = store?.get('kproxyConfig') as KProxyConfig | undefined
-      return { running: false, config: savedConfig || null, stats: null, caInfo: null }
-    }
-    return {
-      running: service.isRunning(),
-      config: service.getConfig(),
-      stats: service.getStats(),
-      caInfo: service.getCACertInfo()
-    }
-  })
-
-  // IPC: 更新 K-Proxy 配置
-  ipcMain.handle('kproxy-update-config', async (_event, config: Partial<KProxyConfig>) => {
-    try {
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, error: 'K-Proxy not initialized' }
-      }
-      service.updateConfig(config)
-      const newConfig = service.getConfig()
-      if (store) {
-        store.set('kproxyConfig', newConfig)
-      }
-      return { success: true, config: newConfig }
-    } catch (error) {
-      console.error('[KProxy] Update config failed:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to update config' }
-    }
-  })
-
-  // IPC: 设置当前设备 ID
-  ipcMain.handle('kproxy-set-device-id', (_event, deviceId: string) => {
-    try {
-      if (!isValidDeviceId(deviceId)) {
-        return { success: false, error: 'Invalid device ID format (must be 64 hex characters)' }
-      }
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, error: 'K-Proxy not initialized' }
-      }
-      service.setDeviceId(deviceId)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to set device ID' }
-    }
-  })
-
-  // IPC: 生成新的设备 ID
-  ipcMain.handle('kproxy-generate-device-id', () => {
-    return { success: true, deviceId: generateDeviceId() }
-  })
-
-  // IPC: 添加设备 ID 映射
-  ipcMain.handle('kproxy-add-device-mapping', (_event, mapping: DeviceIdMapping) => {
-    try {
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, error: 'K-Proxy not initialized' }
-      }
-      service.addDeviceIdMapping(mapping)
-      // 保存映射
-      const mappings = service.getAllDeviceIdMappings()
-      if (store) {
-        store.set('kproxyDeviceMappings', mappings)
-      }
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to add mapping' }
-    }
-  })
-
-  // IPC: 获取所有设备 ID 映射
-  ipcMain.handle('kproxy-get-device-mappings', () => {
-    const service = getKProxyService()
-    if (!service) {
-      const savedMappings = store?.get('kproxyDeviceMappings') as DeviceIdMapping[] | undefined
-      return { success: true, mappings: savedMappings || [] }
-    }
-    return { success: true, mappings: service.getAllDeviceIdMappings() }
-  })
-
-  // IPC: 切换到账号设备 ID
-  ipcMain.handle('kproxy-switch-to-account', (_event, accountId: string) => {
-    try {
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, error: 'K-Proxy not initialized' }
-      }
-      const switched = service.switchToAccount(accountId)
-      return { success: switched, error: switched ? undefined : 'No device ID mapping for account' }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to switch account' }
-    }
-  })
-
-  // IPC: 获取 CA 证书 PEM（用于导出/安装）
-  ipcMain.handle('kproxy-get-ca-cert', () => {
-    const service = getKProxyService()
-    if (!service) {
-      return { success: false, error: 'K-Proxy not initialized' }
-    }
-    const certPem = service.getCACertPem()
-    const caInfo = service.getCACertInfo()
-    if (!certPem || !caInfo) {
-      return { success: false, error: 'CA certificate not available' }
-    }
-    return { 
-      success: true, 
-      certPem,
-      certPath: caInfo.certPath,
-      fingerprint: caInfo.fingerprint
-    }
-  })
-
-  // IPC: 导出 CA 证书到指定路径
-  ipcMain.handle('kproxy-export-ca-cert', async (_event, exportPath?: string) => {
-    try {
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, error: 'K-Proxy not initialized' }
-      }
-      const certPem = service.getCACertPem()
-      if (!certPem) {
-        return { success: false, error: 'CA certificate not available' }
-      }
-      
-      let targetPath = exportPath
-      if (!targetPath) {
-        const result = await dialog.showSaveDialog({
-          title: 'Export CA Certificate',
-          defaultPath: 'kproxy-ca.crt',
-          filters: [{ name: 'Certificate', extensions: ['crt', 'pem'] }]
-        })
-        if (result.canceled || !result.filePath) {
-          return { success: false, error: 'Export cancelled' }
-        }
-        targetPath = result.filePath
-      }
-      
-      await writeFile(targetPath, certPem, 'utf-8')
-      return { success: true, path: targetPath }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to export certificate' }
-    }
-  })
-
-  // IPC: 重置 K-Proxy 统计
-  ipcMain.handle('kproxy-reset-stats', () => {
-    const service = getKProxyService()
-    if (service) {
-      service.resetStats()
-    }
-    return { success: true }
-  })
-
-  // IPC: 检查 CA 证书是否已安装到系统信任存储
-  ipcMain.handle('kproxy-check-ca-cert-installed', async () => {
-    try {
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, installed: false, error: 'K-Proxy not initialized' }
-      }
-
-      const { execSync } = await import('child_process')
-      const platform = process.platform
-
-      if (platform === 'win32') {
-        // Windows: 使用 certutil 检查证书
-        try {
-          const output = execSync('certutil -store -user Root "K-Proxy CA"', { encoding: 'utf-8' })
-          return { success: true, installed: output.includes('K-Proxy CA') }
-        } catch {
-          return { success: true, installed: false }
-        }
-      } else if (platform === 'darwin') {
-        // macOS: 使用 security 命令检查
-        try {
-          execSync('security find-certificate -c "K-Proxy CA" ~/Library/Keychains/login.keychain-db', { encoding: 'utf-8' })
-          return { success: true, installed: true }
-        } catch {
-          return { success: true, installed: false }
-        }
-      } else {
-        // Linux: 检查文件是否存在
-        const fs = await import('fs')
-        const targetPath = '/usr/local/share/ca-certificates/kproxy-ca.crt'
-        return { success: true, installed: fs.existsSync(targetPath) }
-      }
-    } catch (error) {
-      console.error('[KProxy] Check CA cert installed failed:', error)
-      return { success: false, installed: false, error: error instanceof Error ? error.message : 'Check failed' }
-    }
-  })
-
-  // IPC: 安装 CA 证书到系统信任存储
-  ipcMain.handle('kproxy-install-ca-cert', async () => {
-    try {
-      const service = getKProxyService()
-      if (!service) {
-        return { success: false, error: 'K-Proxy not initialized' }
-      }
-      const caInfo = service.getCACertInfo()
-      if (!caInfo) {
-        return { success: false, error: 'CA certificate not available' }
-      }
-
-      const { execSync } = await import('child_process')
-      const platform = process.platform
-
-      if (platform === 'win32') {
-        // Windows: 使用 certutil 安装到根证书存储
-        try {
-          execSync(`certutil -addstore -user Root "${caInfo.certPath}"`, { encoding: 'utf-8' })
-          return { success: true, message: 'CA certificate installed to Windows certificate store' }
-        } catch (error) {
-          const errMsg = error instanceof Error ? error.message : String(error)
-          if (errMsg.includes('already in store') || errMsg.includes('已在存储中')) {
-            return { success: true, message: 'CA certificate already installed' }
-          }
-          throw error
-        }
-      } else if (platform === 'darwin') {
-        // macOS: 使用 security 命令安装到钥匙串
-        execSync(`security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db "${caInfo.certPath}"`)
-        return { success: true, message: 'CA certificate installed to macOS Keychain' }
-      } else {
-        // Linux: 复制到系统 CA 目录
-        const fs = await import('fs')
-        const targetPath = '/usr/local/share/ca-certificates/kproxy-ca.crt'
-        fs.copyFileSync(caInfo.certPath, targetPath)
-        execSync('sudo update-ca-certificates')
-        return { success: true, message: 'CA certificate installed to Linux CA store' }
-      }
-    } catch (error) {
-      console.error('[KProxy] Install CA cert failed:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to install certificate' }
-    }
-  })
-
-  // IPC: 卸载 CA 证书从系统信任存储
-  ipcMain.handle('kproxy-uninstall-ca-cert', async () => {
-    try {
-      const { execSync } = await import('child_process')
-      const platform = process.platform
-
-      if (platform === 'win32') {
-        // Windows: 使用 certutil 删除证书
-        try {
-          execSync('certutil -delstore -user Root "K-Proxy CA"', { encoding: 'utf-8' })
-          return { success: true, message: 'CA certificate removed from Windows certificate store' }
-        } catch (error) {
-          const errMsg = error instanceof Error ? error.message : String(error)
-          if (errMsg.includes('not found') || errMsg.includes('找不到')) {
-            return { success: true, message: 'CA certificate not found in store' }
-          }
-          throw error
-        }
-      } else if (platform === 'darwin') {
-        // macOS: 使用 security 命令删除
-        execSync('security delete-certificate -c "K-Proxy CA" ~/Library/Keychains/login.keychain-db')
-        return { success: true, message: 'CA certificate removed from macOS Keychain' }
-      } else {
-        // Linux: 删除证书并更新
-        const fs = await import('fs')
-        const targetPath = '/usr/local/share/ca-certificates/kproxy-ca.crt'
-        if (fs.existsSync(targetPath)) {
-          fs.unlinkSync(targetPath)
-          execSync('sudo update-ca-certificates --fresh')
-        }
-        return { success: true, message: 'CA certificate removed from Linux CA store' }
-      }
-    } catch (error) {
-      console.error('[KProxy] Uninstall CA cert failed:', error)
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to uninstall certificate' }
-    }
-  })
+  
 
   // ============ MCP 服务器管理 IPC ============
 
