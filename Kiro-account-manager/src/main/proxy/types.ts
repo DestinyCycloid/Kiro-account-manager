@@ -142,8 +142,12 @@ export interface OpenAIResponsesResponse {
   id: string
   object: 'response'
   created_at: number
+  status: string
   model: string
   output: OpenAIResponseOutputItem[]
+  output_text: string | null
+  error: null
+  incomplete_details: null
   previous_response_id?: string
   usage: {
     input_tokens: number
@@ -155,8 +159,8 @@ export interface OpenAIResponsesResponse {
 }
 
 export type OpenAIResponseOutputItem =
-  | { type: 'message'; id: string; role: 'assistant'; content: { type: 'output_text'; text: string }[] }
-  | { type: 'function_call'; id: string; call_id: string; name: string; arguments: string }
+  | { type: 'message'; id: string; role: 'assistant'; status: string; content: { type: 'output_text'; text: string }[] }
+  | { type: 'function_call'; id: string; call_id: string; name: string; arguments: string; status: string }
 
 // ============ Claude 兼容格式 ============
 export interface ClaudeRequest {

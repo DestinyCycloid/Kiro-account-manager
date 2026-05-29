@@ -1013,6 +1013,15 @@ const api = {
   // 获取显示主窗口快捷键
   getShowWindowShortcut: (): Promise<string> => ipcRenderer.invoke('get-show-window-shortcut'),
 
+  getProtocolClientPath: (): Promise<{ currentPath: string; defaultPath: string }> =>
+    ipcRenderer.invoke('get-protocol-client-path'),
+
+  setProtocolClientPath: (targetPath: string): Promise<{ success: boolean; currentPath?: string; defaultPath?: string; error?: string }> =>
+    ipcRenderer.invoke('set-protocol-client-path', targetPath),
+
+  resetProtocolClientPath: (): Promise<{ success: boolean; currentPath?: string; defaultPath?: string; error?: string }> =>
+    ipcRenderer.invoke('reset-protocol-client-path'),
+
   // 设置显示主窗口快捷键
   setShowWindowShortcut: (shortcut: string): Promise<{ success: boolean; error?: string }> => 
     ipcRenderer.invoke('set-show-window-shortcut', shortcut),

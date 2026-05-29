@@ -1361,6 +1361,7 @@ async function getUserInfo(accessToken: string, idp: string = 'BuilderId', accou
 
 // 定义自定义协议
 const PROTOCOL_PREFIX = 'kiro'
+let protocolClientPath = process.execPath
 
 // electron-store 实例（延迟初始化）
 let store: {
@@ -1631,8 +1632,8 @@ function createWindow(): void {
   const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     title: `Kiro 账号管理器 v${app.getVersion()}`,
-    width: 1200,   // 刚好容纳 3 列卡片 (340*3 + 16*2 + 边距)
-    height: 1200,
+    width: 1600,
+    height: 900,
     minWidth: 800,
     minHeight: 600,
     show: false,
@@ -1842,12 +1843,12 @@ function registerProtocol(): void {
   
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient(PROTOCOL_PREFIX, process.execPath, [
+      app.setAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [
         join(process.argv[1])
       ])
     }
   } else {
-    app.setAsDefaultProtocolClient(PROTOCOL_PREFIX)
+    app.setAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [])
   }
   console.log(`[Protocol] Registered ${PROTOCOL_PREFIX}:// protocol`)
 }
@@ -1856,12 +1857,12 @@ function registerProtocol(): void {
 function unregisterProtocol(): void {
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
-      app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX, process.execPath, [
+      app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [
         join(process.argv[1])
       ])
     }
   } else {
-    app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX)
+    app.removeAsDefaultProtocolClient(PROTOCOL_PREFIX, (protocolClientPath || process.execPath), [])
   }
   console.log(`[Protocol] Unregistered ${PROTOCOL_PREFIX}:// protocol`)
 }
@@ -1902,6 +1903,7 @@ app.whenReady().then(async () => {
 
   // 加载托盘设置并初始化托盘
   await loadTraySettings()
+  protocolClientPath = (store?.get('protocolClientPath') as string | undefined) || process.execPath
   initTray()
 
   // 初始化自动更新（仅生产环境）
@@ -1969,6 +1971,36 @@ app.whenReady().then(async () => {
       return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }
+    }
+  })
+
+  ipcMain.handle('get-protocol-client-path', () => {
+    return {
+      currentPath: protocolClientPath || process.execPath,
+      defaultPath: process.execPath
+    }
+  })
+
+  ipcMain.handle('set-protocol-client-path', async (_event, targetPath: string) => {
+    try {
+      const next = (targetPath || '').trim() || process.execPath
+      protocolClientPath = next
+      store?.set('protocolClientPath', protocolClientPath)
+      registerProtocol()
+      return { success: true, currentPath: protocolClientPath, defaultPath: process.execPath }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  ipcMain.handle('reset-protocol-client-path', async () => {
+    try {
+      protocolClientPath = process.execPath
+      store?.set('protocolClientPath', protocolClientPath)
+      registerProtocol()
+      return { success: true, currentPath: protocolClientPath, defaultPath: process.execPath }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
     }
   })
 
